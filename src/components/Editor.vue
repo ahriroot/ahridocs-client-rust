@@ -9,6 +9,9 @@ import "vditor/dist/index.css"
 import { DocFile } from "@/types"
 
 const props = defineProps<{ value: DocFile }>()
+const emits = defineEmits<{
+    (e: "handleUpdateFile", val: { path: string; content: string }): void
+}>()
 
 const indexStore = useIndexStore()
 const vditor = ref<Vditor | null>(null)
@@ -33,7 +36,7 @@ watch(
 )
 
 watch(
-    () => props.value.name,
+    () => props.value.path,
     () => {
         vditor?.value?.setValue(props.value.content)
     }
@@ -44,6 +47,10 @@ onMounted(() => {
     if (elementRef.value) {
         let { theme, content, code } = getTheme()
         vditor.value = new Vditor(elementRef.value, {
+            tab: "    ",
+            input(value: string) {
+                emits("handleUpdateFile", { path: props.value.path, content: value })
+            },
             height: "100%",
             theme: theme,
             preview: {
@@ -65,7 +72,7 @@ onMounted(() => {
                 },
             },
             cache: {
-                enable: true,
+                enable: false,
                 id: "cache",
             },
             cdn: "/vditor",

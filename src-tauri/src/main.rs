@@ -3,12 +3,23 @@
     windows_subsystem = "windows"
 )]
 
+use std::path::Path;
+
 use hotwatch::{Event, Hotwatch};
 use serde_json;
 use tauri::api::dialog::FileDialogBuilder;
 use tauri::Manager;
 
 // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct FileTree {
+    type_: i32,
+    name: String,
+    path: String,
+    updated: i64,
+    children: Option<Vec<FileTree>>,
+}
 
 #[derive(Clone, serde::Serialize)]
 struct Message {
@@ -23,30 +34,61 @@ struct OpenFolder {
     path: Box<String>,
 }
 
-#[tauri::command]
-fn open() -> OpenFolder {
-    let (tx, tr) = std::sync::mpsc::channel::<&OpenFolder>();
-
-    FileDialogBuilder::new().pick_folders(move |file_paths| match file_paths {
-        Some(paths) => {
-            if let Some(path) = paths.first() {
-                let path = path.to_string_lossy().to_string();
-                tx.send(Box::leak(Box::new(OpenFolder {
-                    type_: 0,
-                    path: Box::new(path),
-                })))
-                .unwrap();
-            } else {
-                tx.send(Box::leak(Box::new(OpenFolder {
-                    type_: 1,
-                    path: Box::new("path not found".to_string()),
-                })))
-                .unwrap();
+fn read_dir(path: &Path) -> Vec<FileTree> {
+    let mut result = Vec::new();
+    for entry in std::fs::read_dir(path).unwrap() {
+        let entry = entry.unwrap();
+        let path = entry.path();
+        let mut type_ = 0;
+        if path.is_dir() {
+            type_ = 0
+        } else {
+            let ext = path.extension().unwrap().to_str().unwrap();
+            if ext == "md" {
+                type_ = 1
+            } else if ext == "json" {
+                type_ = 2
             }
         }
-        None => {
+        let metadata = std::fs::metadata(&path).unwrap();
+        let file_tree = FileTree {
+            type_,
+            name: entry.file_name().to_str().unwrap().to_string(),
+            path: path.to_str().unwrap().to_string(),
+            updated: metadata.modified().unwrap().elapsed().unwrap().as_micros() as i64,
+            children: if path.is_dir() {
+                Some(read_dir(&path))
+            } else {
+                None
+            },
+        };
+        result.push(file_tree);
+    }
+    result
+}
+
+#[tauri::command]
+fn open(path: String) -> Option<Vec<FileTree>> {
+    let path = Path::new(&path);
+    let filetree: Vec<FileTree> = read_dir(path);
+    Some(filetree)
+}
+
+#[tauri::command]
+fn select() -> OpenFolder {
+    let (tx, tr) = std::sync::mpsc::channel::<&OpenFolder>();
+
+    FileDialogBuilder::new().pick_folder(move |folder_path| {
+        if let Some(path) = folder_path {
+            let path = path.to_string_lossy().to_string();
             tx.send(Box::leak(Box::new(OpenFolder {
-                type_: 2,
+                type_: 0,
+                path: Box::new(path),
+            })))
+            .unwrap();
+        } else {
+            tx.send(Box::leak(Box::new(OpenFolder {
+                type_: 1,
                 path: Box::new("path not found".to_string()),
             })))
             .unwrap();
@@ -56,6 +98,71 @@ fn open() -> OpenFolder {
     OpenFolder {
         type_: path.type_,
         path: path.path.clone(),
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct OpenFile {
+    type_: i32,
+    path: String,
+    content: String,
+    updated: i64,
+}
+
+#[tauri::command]
+fn read(path: String) -> Option<OpenFile> {
+    let path = Path::new(&path);
+    if path.exists() && path.is_file() {
+        let metadata = std::fs::metadata(&path).unwrap();
+        let content = std::fs::read_to_string(&path).unwrap();
+        let open_file = OpenFile {
+            type_: 0,
+            path: path.to_str().unwrap().to_string(),
+            content,
+            updated: metadata.modified().unwrap().elapsed().unwrap().as_micros() as i64,
+        };
+        Some(open_file)
+    } else {
+        None
+    }
+}
+
+#[tauri::command]
+fn reads(paths: Vec<String>) -> Option<Vec<OpenFile>> {
+    let mut result = Vec::new();
+    for path in paths {
+        let path = Path::new(&path);
+        if path.exists() && path.is_file() {
+            let metadata = std::fs::metadata(&path).unwrap();
+            let content = std::fs::read_to_string(&path).unwrap();
+            let open_file = OpenFile {
+                type_: 0,
+                path: path.to_str().unwrap().to_string(),
+                content,
+                updated: metadata.modified().unwrap().elapsed().unwrap().as_micros() as i64,
+            };
+            result.push(open_file);
+        }
+    }
+    Some(result)
+}
+
+#[tauri::command]
+fn write(path: String, content: String) -> Option<OpenFile> {
+    let path = Path::new(&path);
+    if path.exists() && path.is_file() {
+        std::fs::write(&path, content).unwrap();
+        let metadata = std::fs::metadata(&path).unwrap();
+        let content = std::fs::read_to_string(&path).unwrap();
+        let open_file = OpenFile {
+            type_: 0,
+            path: path.to_str().unwrap().to_string(),
+            content,
+            updated: metadata.modified().unwrap().elapsed().unwrap().as_micros() as i64,
+        };
+        Some(open_file)
+    } else {
+        None
     }
 }
 
@@ -208,13 +315,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             )
                             .expect("failed to watch file!");
                     } else {
-                        window.emit("file-system-changed", msg).unwrap();
+                        let p = msg.path.as_str();
+                        // if startwith \\?\, remove it
+                        let p = if p.starts_with("\\\\?\\") {
+                            &p[4..]
+                        } else {
+                            p
+                        };
+                        let path: &Path = Path::new(p);
+                        println!("path: {:?}", path);
+                        window
+                            .emit(
+                                "file-system-changed",
+                                Message {
+                                    type_: msg.type_,
+                                    path: Box::new(path.to_str().unwrap().to_string()),
+                                    path2: msg.path2.clone(),
+                                },
+                            )
+                            .unwrap();
                     }
                 }
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![open])
+        .invoke_handler(tauri::generate_handler![select, open, read, reads, write])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
     Ok(())
@@ -232,7 +357,6 @@ mod tests {
             .watch(
                 "\\\\?\\C:\\Users\\ahrik\\Desktop\\ahridocs-client-rust\\documents",
                 |event: Event| {
-                    println!("get some event {:?}", event);
                     if let Event::Write(path) = event {
                         let ext = path.extension().unwrap().to_str().unwrap();
                         // if file endwith md or json
