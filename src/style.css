@@ -45,3 +45,28 @@ body {
 .nocopy {
     user-select: none;
 }
+
+.vditor-preview__action {
+    display: none;
+}
+
+::-webkit-scrollbar {
+    width: 8px;
+    background-color: transparent;
+}
+
+::-webkit-scrollbar-track {
+    background-color: transparent;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+    background: #2d2f33;
+}
+
+.light ::-webkit-scrollbar-thumb {
+    background: #e1e4e8;
+}
+
+.n-empty {
+    display: none;
+}

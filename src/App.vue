@@ -1,26 +1,45 @@
 <script setup lang="ts">
-import { ref, nextTick, onBeforeMount, onBeforeUnmount, onMounted } from "vue"
+import { ref, shallowRef, nextTick, onBeforeMount, onBeforeUnmount, onMounted } from "vue"
 
 import { useIndexStore } from "@/store"
 
 import { listen, UnlistenFn, emit } from "@tauri-apps/api/event"
 import { invoke } from "@tauri-apps/api/tauri"
+import { exit } from "@tauri-apps/api/process"
 
-import { NConfigProvider, darkTheme } from "naive-ui"
+import { NConfigProvider, NGlobalStyle, darkTheme, NButton, NIcon } from "naive-ui"
+import { Close as IconClose, Cog, FolderSharp, CloseCircle, ColorPalette } from "@vicons/ionicons5"
 
 import FileTreeVue from "@/components/FileTree.vue"
-import EditorVue from "@/components/Editor.vue"
+import VditorVue from "@/components/Vditor.vue"
+import WangEditorVue from "@/components/WangEditor.vue"
+import SettingVue from "@/components/Setting.vue"
+
 import Markdown from "@/components/icons/md.vue"
 import Word from "@/components/icons/word.vue"
+import Setting from "@/components/icons/setting.vue"
 import Point from "@/components/icons/point.vue"
 import Close from "@/components/icons/close.vue"
 import type { DocFile, FileTree } from "@/types"
 
+const tabsComponent = shallowRef([SettingVue, VditorVue, WangEditorVue])
+const iconComponent = shallowRef([Setting, Markdown, Word])
+
+const handleExit = async () => {
+    await exit()
+}
+
 const indexStore = useIndexStore()
 
+const mode = ref<"ir" | "sv" | "wysiwyg">("ir")
 const key = ref(0)
+const save = ref(false)
 let unlisten: UnlistenFn
 onBeforeMount(async () => {
+    let m = localStorage.getItem("mode")
+    if (m) {
+        mode.value = m as "ir" | "sv" | "wysiwyg"
+    }
     unlisten = await listen<any>("file-system-changed", async event => {
         switch (event.payload.type_) {
             case 1: // create folder
@@ -30,6 +49,10 @@ onBeforeMount(async () => {
             case 3: // write folder
                 break
             case 4: // write file
+                if (save.value) {
+                    save.value = false
+                    return
+                }
                 let has = tabs.value.find(v => v.path === event.payload.path)
                 if (has) {
                     const file = await invoke<any>("read", {
@@ -38,7 +61,7 @@ onBeforeMount(async () => {
                     has.content = file.content
                     has.updated = file.updated
                 }
-                key.value++
+                console.log("write file", event.payload.path)
                 break
             case 5: // rename
                 break
@@ -83,7 +106,7 @@ onBeforeMount(async () => {
                     tab.content = file.content
                     return tab
                 }
-                return null
+                return tab
             })
             .filter((tab: any) => tab)
         if (tabs.value.length > 0) {
@@ -121,10 +144,18 @@ onMounted(async () => {
     document.body.addEventListener("mouseup", ev => {
         resizeable.value = false
     })
+
+    setTimeout(async () => {
+        await invoke("close_splashscreen")
+        key.value++
+    }, 300)
 })
 
 onBeforeUnmount(() => {
-    unlisten()
+    // if unlisten is not called, the event listener will not be removed
+    if (unlisten) {
+        unlisten()
+    }
 })
 
 const filetree = ref<FileTree[]>([])
@@ -139,8 +170,7 @@ const openFolder = async (path: string) => {
             showTree.value = true
         })
     } else {
-        folder.value = ""
-        localStorage.removeItem("folder")
+        await closeFolder()
     }
 }
 const selectFolder = async () => {
@@ -156,11 +186,35 @@ const selectFolder = async () => {
         // alert("No folder selected")
     }
 }
+
+const filetreeRef = ref()
 const closeFolder = async () => {
     emit("watch-path-changed", {
         type_: -100,
         path: "",
     })
+    tabs.value = []
+    folder.value = ""
+    currentTab.value.name = ""
+    localStorage.removeItem("folder")
+    localStorage.removeItem("defaultExpandedKeys")
+    localStorage.removeItem("tab")
+    localStorage.removeItem("tabs")
+    if (filetreeRef.value) {
+        filetreeRef.value.handleClose()
+    }
+}
+
+const setMode = () => {
+    let modes: ["ir", "sv", "wysiwyg"] = ["ir", "sv", "wysiwyg"]
+    let index = modes.indexOf(mode.value)
+    if (index < 2) {
+        mode.value = modes[index + 1]
+    } else {
+        mode.value = modes[0]
+    }
+    localStorage.setItem("mode", mode.value)
+    key.value++
 }
 
 const tabs = ref<DocFile[]>([])
@@ -173,19 +227,37 @@ const currentTab = ref<DocFile>({
     changed: false,
 })
 
-const handleClick = (data: any) => {
+const handleTabChanged = (data: any) => {
     currentTab.value = data
     localStorage.setItem("tab", currentTab.value.path)
 }
 
-const handleSetTheme = (theme: string) => {
-    indexStore.updateConfig({
-        theme: theme,
-    })
+const handleSetTheme = () => {
+    if (indexStore.theme === "dark") {
+        indexStore.updateConfig({
+            theme: "light",
+        })
+    } else {
+        indexStore.updateConfig({
+            theme: "dark",
+        })
+    }
 }
 
 const handleOpenFile = async (t: any) => {
-    if (t.type !== 1) {
+    if (t.type === 0) {
+        let tmp = {
+            type_: t.type,
+            name: t.name,
+            path: t.key,
+            updated: 0,
+            content: "",
+            changed: false,
+        }
+        tabs.value.push(tmp)
+        currentTab.value = tmp
+        localStorage.setItem("tabs", JSON.stringify(tabs.value))
+        localStorage.setItem("tab", currentTab.value.path)
         return
     }
     const file = await invoke<any>("read", {
@@ -222,6 +294,7 @@ const handleUpdateFile = ({ path, content }: { path: string; content: string }) 
 
 const handleSave = async () => {
     if (currentTab.value.changed) {
+        save.value = true
         await invoke("write", {
             path: currentTab.value.path,
             content: currentTab.value.content,
@@ -231,20 +304,93 @@ const handleSave = async () => {
         localStorage.setItem("tabs", JSON.stringify(tabs.value))
     }
 }
+
+const handleRelaod = async () => {
+    window.location.reload()
+}
+
+const handleOpenSetting = async () => {
+    let has = tabs.value.find(v => v.path === "AhriDocs - Setting")
+    if (has) {
+        currentTab.value = has
+    } else {
+        await handleOpenFile({
+            label: "Setting",
+            name: "Setting",
+            key: "AhriDocs - Setting",
+            type: 0,
+            edit: false,
+        })
+    }
+}
 </script>
 
 <template>
     <NConfigProvider :theme="indexStore.theme == 'dark' ? darkTheme : null">
+        <NGlobalStyle />
         <div id="container" class="container" :class="indexStore.theme">
-            <aside data-tauri-drag-region class="aside"></aside>
+            <aside data-tauri-drag-region class="aside">
+                <div class="top">
+                    <svg
+                        @click="handleRelaod"
+                        title="AhriDocs Reload"
+                        t="1669484176886"
+                        class="logo"
+                        viewBox="0 0 1024 1024"
+                        version="1.1"
+                        xmlns="http://www.w3.org/2000/svg"
+                        p-id="6458"
+                        width="24"
+                        height="24"
+                    >
+                        <path
+                            d="M512 448V0H64v1024h896V448H512zM192 256h192v64H192V256z m640 576H192v-64h640v64z m0-256H192V512h640v64z"
+                            p-id="6459"
+                            fill="#1296db"
+                        ></path>
+                        <path d="M576 384h384L576 0v384z" p-id="6460" fill="#1296db"></path>
+                    </svg>
+                </div>
+                <div class="bottom">
+                    <n-button circle quaternary size="small" @click.stop="handleOpenSetting">
+                        <template #icon>
+                            <n-icon class="btn-icon-setting">
+                                <Cog />
+                            </n-icon>
+                        </template>
+                    </n-button>
+                    <n-button circle quaternary size="small" @click.stop="handleExit">
+                        <template #icon>
+                            <n-icon class="btn-icon-setting">
+                                <IconClose />
+                            </n-icon>
+                        </template>
+                    </n-button>
+                </div>
+            </aside>
             <div class="file-tree-container" :style="`width: ${width}px`">
-                <button class="btn" @click="selectFolder">Open</button>
-                <button class="btn" @click="closeFolder">Close</button>
-                <button class="btn" @click="handleSetTheme('dark')">Dark</button>
-                <button class="btn" @click="handleSetTheme('light')">Light</button>
+                <div class="header">
+                    <button class="btn" @click="selectFolder">
+                        <NIcon size="18">
+                            <FolderSharp />
+                        </NIcon>
+                    </button>
+                    <button class="btn" @click="closeFolder">
+                        <NIcon size="18">
+                            <CloseCircle />
+                        </NIcon>
+                    </button>
+                    <button class="btn" @click="handleSetTheme">
+                        <NIcon size="18">
+                            <ColorPalette />
+                        </NIcon>
+                    </button>
+                    <button class="btn" @click="setMode">{{ mode }}</button>
+                </div>
                 <div class="file-tree-body">
                     <FileTreeVue
                         v-if="showTree"
+                        ref="filetreeRef"
                         @handleOpenFile="handleOpenFile"
                         :value="filetree"
                         :theme="indexStore.theme"
@@ -264,10 +410,10 @@ const handleSave = async () => {
                                 active: item.name === currentTab.name,
                                 changed: item.changed,
                             }"
-                            @click="handleClick(item)"
+                            @click="handleTabChanged(item)"
                         >
                             <span class="icon">
-                                <component :is="item.type_ === 1 ? Markdown : Word" />
+                                <component :is="iconComponent[item.type_]" />
                             </span>
                             <span class="name">{{ item.name }}</span>
                             <span class="close-btn">
@@ -278,12 +424,19 @@ const handleSave = async () => {
                         <div class="bg"></div>
                     </div>
                     <div class="tab-panel">
-                        <EditorVue
-                            v-if="tabs.length > 0 && currentTab.name !== ''"
-                            :key="key"
-                            @handleUpdateFile="handleUpdateFile"
-                            :value="currentTab"
-                        />
+                        <div
+                            class="tab-panel-item"
+                            v-for="item in tabs"
+                            :style="`z-index: ${item.name === currentTab.name ? 100 : 0}`"
+                        >
+                            <component
+                                :is="tabsComponent[currentTab.type_]"
+                                :mode="mode"
+                                :key="key"
+                                @handleUpdateFile="handleUpdateFile"
+                                :value="currentTab"
+                            />
+                        </div>
                     </div>
                 </div>
             </div>
@@ -296,14 +449,22 @@ const handleSave = async () => {
     svg path {
         fill: #586069;
     }
+    svg.logo path {
+        cursor: pointer;
+    }
 }
 #container.dark {
+    svg.logo path {
+        fill: #c6d5da;
+    }
     .tab-view-container {
         .tab {
             .tab-bar {
                 .tab-bar-item {
                     &.active {
-                        svg.md path {
+                        svg.md path,
+                        svg.word path,
+                        svg.setting path {
                             fill: #c6d5da;
                         }
                         svg.close path,
@@ -317,12 +478,17 @@ const handleSave = async () => {
     }
 }
 #container.light {
+    svg.logo path {
+        fill: #55595e;
+    }
     .tab-view-container {
         .tab {
             .tab-bar {
                 .tab-bar-item {
                     &.active {
-                        svg.md path {
+                        svg.md path,
+                        svg.word path,
+                        svg.setting path {
                             fill: #24292e;
                         }
                         svg.close path,
@@ -338,14 +504,27 @@ const handleSave = async () => {
 </style>
 
 <style scoped lang="scss">
+.file-tree-container .header {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 40px;
+    display: flex;
+    justify-content: flex-start;
+    align-items: center;
+    .btn {
+        margin-left: 6px;
+        border: none;
+        background: none;
+        padding: 8px 14px;
+        margin: 6px 2px;
+        cursor: pointer;
+    }
+}
 .dark .btn {
-    border: none;
-    background: none;
     background-color: #1d2125;
     color: #eee;
-    padding: 10px 20px;
-    margin: 6px 2px;
-    cursor: pointer;
 }
 
 .dark .btn:hover {
@@ -353,13 +532,8 @@ const handleSave = async () => {
 }
 
 .light .btn {
-    border: none;
-    background: none;
     background-color: #f3f6f8;
     color: #333;
-    padding: 10px 20px;
-    margin: 10px 2px;
-    cursor: pointer;
 }
 
 .light .btn:hover {
@@ -376,8 +550,28 @@ const handleSave = async () => {
         top: 0;
         left: 0;
         bottom: 0;
-        width: 60px;
+        width: 50px;
         cursor: move;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        align-items: center;
+        .top {
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding-top: 10px;
+        }
+        .bottom {
+            width: 100%;
+            height: 76px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: 10px;
+        }
     }
     .file-tree-container {
         position: absolute;
@@ -516,11 +710,20 @@ const handleSave = async () => {
             }
             .tab-panel {
                 position: absolute;
-                top: 46px;
+                top: 40px;
                 left: 0;
                 right: 0;
                 bottom: 0;
                 overflow: hidden;
+
+                .tab-panel-item {
+                    position: absolute;
+                    top: 0;
+                    left: 0;
+                    right: 0;
+                    bottom: 0;
+                    overflow: hidden;
+                }
             }
         }
     }
@@ -533,6 +736,9 @@ const handleSave = async () => {
     }
     .file-tree-container {
         background: #24292e;
+        .header {
+            background: #1d2125;
+        }
     }
     .split {
         background: #1d2125;
@@ -573,6 +779,9 @@ const handleSave = async () => {
     }
     .file-tree-container {
         background: #ffffff;
+        .header {
+            background: #f3f6f8;
+        }
     }
     .split {
         background: #f3f6f8;

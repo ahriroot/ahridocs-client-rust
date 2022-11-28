@@ -8,7 +8,7 @@ import "vditor/dist/index.css"
 
 import { DocFile } from "@/types"
 
-const props = defineProps<{ value: DocFile }>()
+const props = defineProps<{ value: DocFile; mode: "ir" | "wysiwyg" | "sv" | undefined }>()
 const emits = defineEmits<{
     (e: "handleUpdateFile", val: { path: string; content: string }): void
 }>()
@@ -45,13 +45,20 @@ watch(
 const elementRef = ref<HTMLElement | null>(null)
 onMounted(() => {
     if (elementRef.value) {
+        let mode: "ir" | "wysiwyg" | "sv" | undefined = props.mode
+        if (mode == undefined) {
+            mode = "ir"
+        }
         let { theme, content, code } = getTheme()
         vditor.value = new Vditor(elementRef.value, {
+            mode: mode,
+            placeholder: "请输入内容",
             tab: "    ",
             input(value: string) {
                 emits("handleUpdateFile", { path: props.value.path, content: value })
             },
             height: "100%",
+            width: "100%",
             theme: theme,
             preview: {
                 mode: "both",
@@ -85,13 +92,13 @@ onMounted(() => {
 </script>
 
 <template>
-    <div id="tab-view">
+    <div id="vditor">
         <div ref="elementRef" />
     </div>
 </template>
 
 <style scoped>
-#tab-view {
+#vditor {
     position: absolute;
     top: 0;
     left: 0;

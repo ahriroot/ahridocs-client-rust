@@ -7,8 +7,8 @@
         "withGlobalTauri": false
     },
     "package": {
-        "productName": "ahridocs-client-rust",
-        "version": "0.0.0"
+        "productName": "AhriDocs",
+        "version": "0.1.0"
     },
     "tauri": {
         "allowlist": {
@@ -17,7 +17,7 @@
         "bundle": {
             "active": true,
             "category": "DeveloperTool",
-            "copyright": "",
+            "copyright": "© 2022 ahriknow",
             "deb": {
                 "depends": []
             },
@@ -29,8 +29,8 @@
                 "icons/icon.icns",
                 "icons/icon.ico"
             ],
-            "identifier": "com.tauri.dev",
-            "longDescription": "",
+            "identifier": "com.ahriknow.docs",
+            "longDescription": "文档管理工具、在线编辑查看 / Docs management tool, online editing and viewing",
             "macOS": {
                 "entitlements": null,
                 "exceptionDomain": "",
@@ -39,28 +39,48 @@
                 "signingIdentity": null
             },
             "resources": [],
-            "shortDescription": "",
+            "shortDescription": "文档管理工具",
             "targets": "all",
             "windows": {
                 "certificateThumbprint": null,
                 "digestAlgorithm": "sha256",
-                "timestampUrl": ""
+                "timestampUrl": "",
+                "wix": {
+                    "language": "zh-CN",
+                    "license": "LICENSE.rtf"
+                }
             }
         },
         "security": {
             "csp": null
         },
         "updater": {
-            "active": false
+            "active": true,
+            "endpoints": [
+                "https://installer.service.ahriknow.com/ahridocs/rust/latest.json"
+            ],
+            "dialog": false,
+            "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDJENDhCNjhEMkY5QzNGMjEKUldRaFA1d3ZqYlpJTFZyV056elVnaDlxaURrSGFJREg5M3M2K1NqNldjeUcxSFBSVzE2cDh5MGMK"
         },
         "windows": [
             {
                 "fullscreen": false,
                 "resizable": true,
-                "title": "ahridocs-client-rust",
+                "title": "AhriDocs",
                 "width": 1366,
                 "height": 768,
-                "decorations": false
+                "decorations": false,
+                "center": true,
+                "visible": false
+            },
+            {
+                "width": 400,
+                "height": 200,
+                "decorations": false,
+                "url": "splashscreen.html",
+                "label": "splashscreen",
+                "center": true,
+                "visible": true
             }
         ]
     }

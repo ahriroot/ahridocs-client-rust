@@ -22,6 +22,15 @@ const handleUpdateExpandedKeys = (keys: any[]) => {
     localStorage.setItem("defaultExpandedKeys", JSON.stringify(keys))
 }
 
+const handleClose = () => {
+    defaultExpandedKeys.value = []
+    data.value = undefined
+}
+
+defineExpose({
+    handleClose,
+})
+
 const renderSwitcherIcon = () => h(NIcon, null, { default: () => h(ChevronForward) })
 
 const renderLabel = ({ option }: TreeRenderProps): VNodeChild => {

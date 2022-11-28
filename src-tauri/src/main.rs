@@ -10,6 +10,16 @@ use serde_json;
 use tauri::api::dialog::FileDialogBuilder;
 use tauri::Manager;
 
+#[tauri::command]
+async fn close_splashscreen(window: tauri::Window) {
+    // Close splashscreen
+    if let Some(splashscreen) = window.get_window("splashscreen") {
+        splashscreen.close().unwrap();
+    }
+    // Show main window
+    window.get_window("main").unwrap().show().unwrap();
+}
+
 // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -39,15 +49,17 @@ fn read_dir(path: &Path) -> Vec<FileTree> {
     for entry in std::fs::read_dir(path).unwrap() {
         let entry = entry.unwrap();
         let path = entry.path();
-        let mut type_ = 0;
+        let type_;
         if path.is_dir() {
             type_ = 0
         } else {
             let ext = path.extension().unwrap().to_str().unwrap();
             if ext == "md" {
                 type_ = 1
-            } else if ext == "json" {
+            } else if ext == "ahtml" {
                 type_ = 2
+            } else {
+                continue;
             }
         }
         let metadata = std::fs::metadata(&path).unwrap();
@@ -317,13 +329,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     } else {
                         let p = msg.path.as_str();
                         // if startwith \\?\, remove it
-                        let p = if p.starts_with("\\\\?\\") {
-                            &p[4..]
-                        } else {
-                            p
-                        };
+                        let p = if p.starts_with("\\\\?\\") { &p[4..] } else { p };
                         let path: &Path = Path::new(p);
-                        println!("path: {:?}", path);
                         window
                             .emit(
                                 "file-system-changed",
@@ -339,7 +346,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![select, open, read, reads, write])
+        .invoke_handler(tauri::generate_handler![
+            close_splashscreen,
+            select,
+            open,
+            read,
+            reads,
+            write
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
     Ok(())
