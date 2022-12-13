@@ -1,14 +1,19 @@
 import type { Config } from '@/types'
 import { defineStore } from 'pinia'
 
-const defaultConfig = () => {
-    let config = localStorage.getItem('config')
-    if (config) {
-        return JSON.parse(config) as Config
+const defaultConfig = (): Config => {
+    let config: Config = { theme: 'dark', mdMode: 'wysiwyg' }
+    let configStr = localStorage.getItem('config')
+    if (configStr) {
+        try {
+            let tmp = JSON.parse(configStr) as Config
+            config = { ...config, ...tmp }
+        } catch (e) {
+            console.error(e)
+        }
     }
-    let default_config = { theme: 'dark' }
-    localStorage.setItem('config', JSON.stringify(default_config))
-    return default_config
+    localStorage.setItem('config', JSON.stringify(config))
+    return config
 }
 
 export const useIndexStore = defineStore<

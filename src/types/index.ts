@@ -1,5 +1,6 @@
 export interface Config {
     theme: string
+    mdMode: "ir" | "sv" | "wysiwyg"
 }
 export interface FileTree {
     type_: number

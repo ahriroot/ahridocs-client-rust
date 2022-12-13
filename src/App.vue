@@ -6,9 +6,11 @@ import { useIndexStore } from "@/store"
 import { listen, UnlistenFn, emit } from "@tauri-apps/api/event"
 import { invoke } from "@tauri-apps/api/tauri"
 import { exit } from "@tauri-apps/api/process"
+import { appDataDir, join } from "@tauri-apps/api/path"
+import { convertFileSrc } from "@tauri-apps/api/tauri"
 
 import { NConfigProvider, NGlobalStyle, darkTheme, NButton, NIcon } from "naive-ui"
-import { Close as IconClose, Cog, FolderSharp, CloseCircle, ColorPalette } from "@vicons/ionicons5"
+import { Close as IconClose, Cog, FolderSharp, CloseCircle } from "@vicons/ionicons5"
 
 import FileTreeVue from "@/components/FileTree.vue"
 import VditorVue from "@/components/Vditor.vue"
@@ -31,15 +33,10 @@ const handleExit = async () => {
 
 const indexStore = useIndexStore()
 
-const mode = ref<"ir" | "sv" | "wysiwyg">("ir")
 const key = ref(0)
 const save = ref(false)
 let unlisten: UnlistenFn
 onBeforeMount(async () => {
-    let m = localStorage.getItem("mode")
-    if (m) {
-        mode.value = m as "ir" | "sv" | "wysiwyg"
-    }
     unlisten = await listen<any>("file-system-changed", async event => {
         switch (event.payload.type_) {
             case 1: // create folder
@@ -61,7 +58,6 @@ onBeforeMount(async () => {
                     has.content = file.content
                     has.updated = file.updated
                 }
-                console.log("write file", event.payload.path)
                 break
             case 5: // rename
                 break
@@ -129,6 +125,12 @@ const serResizeable = (ev: MouseEvent) => {
     oldX.value = ev.clientX
 }
 onMounted(async () => {
+    const appDataDirPath = await appDataDir()
+    const filePath = await join(appDataDirPath, 'files\\1.jpg');
+    console.log(filePath)
+    const assetUrl = convertFileSrc(filePath)
+    console.log(assetUrl)
+
     document.body.addEventListener("mousemove", ev => {
         if (resizeable.value) {
             let newWidth = oldWidth.value + ev.clientX - oldX.value
@@ -205,18 +207,6 @@ const closeFolder = async () => {
     }
 }
 
-const setMode = () => {
-    let modes: ["ir", "sv", "wysiwyg"] = ["ir", "sv", "wysiwyg"]
-    let index = modes.indexOf(mode.value)
-    if (index < 2) {
-        mode.value = modes[index + 1]
-    } else {
-        mode.value = modes[0]
-    }
-    localStorage.setItem("mode", mode.value)
-    key.value++
-}
-
 const tabs = ref<DocFile[]>([])
 const currentTab = ref<DocFile>({
     name: "",
@@ -227,20 +217,19 @@ const currentTab = ref<DocFile>({
     changed: false,
 })
 
-const handleTabChanged = (data: any) => {
-    currentTab.value = data
-    localStorage.setItem("tab", currentTab.value.path)
-}
-
-const handleSetTheme = () => {
-    if (indexStore.theme === "dark") {
-        indexStore.updateConfig({
-            theme: "light",
-        })
+const handleTabChanged = async (data: DocFile | null) => {
+    if (data) {
+        currentTab.value = data
+        localStorage.setItem("tab", currentTab.value.path)
     } else {
-        indexStore.updateConfig({
-            theme: "dark",
-        })
+        currentTab.value = {
+            name: "",
+            path: "",
+            type_: 0,
+            updated: 0,
+            content: "",
+            changed: false,
+        }
     }
 }
 
@@ -323,6 +312,22 @@ const handleOpenSetting = async () => {
         })
     }
 }
+
+const handleTabClosed = async (path: string) => {
+    let index = tabs.value.findIndex(v => v.path === path)
+    if (index > -1) {
+        tabs.value.splice(index, 1)
+        localStorage.setItem("tabs", JSON.stringify(tabs.value))
+
+        if (currentTab.value.path === path) {
+            if (index < tabs.value.length) {
+                await handleTabChanged(tabs.value[index])
+            } else {
+                await handleTabChanged(tabs.value[tabs.value.length - 1])
+            }
+        }
+    }
+}
 </script>
 
 <template>
@@ -380,12 +385,6 @@ const handleOpenSetting = async () => {
                             <CloseCircle />
                         </NIcon>
                     </button>
-                    <button class="btn" @click="handleSetTheme">
-                        <NIcon size="18">
-                            <ColorPalette />
-                        </NIcon>
-                    </button>
-                    <button class="btn" @click="setMode">{{ mode }}</button>
                 </div>
                 <div class="file-tree-body">
                     <FileTreeVue
@@ -418,25 +417,20 @@ const handleOpenSetting = async () => {
                             <span class="name">{{ item.name }}</span>
                             <span class="close-btn">
                                 <Point class="point" />
-                                <Close class="close" />
+                                <Close class="close" @click.stop="handleTabClosed(item.path)" />
                             </span>
                         </div>
                         <div class="bg"></div>
                     </div>
                     <div class="tab-panel">
-                        <div
-                            class="tab-panel-item"
-                            v-for="item in tabs"
-                            :style="`z-index: ${item.name === currentTab.name ? 100 : 0}`"
-                        >
-                            <component
-                                :is="tabsComponent[currentTab.type_]"
-                                :mode="mode"
-                                :key="key"
-                                @handleUpdateFile="handleUpdateFile"
-                                :value="currentTab"
-                            />
-                        </div>
+                        <component
+                            v-if="currentTab.path != ''"
+                            :is="tabsComponent[currentTab.type_]"
+                            :mode="indexStore.config.mdMode"
+                            :key="key"
+                            @handleUpdateFile="handleUpdateFile"
+                            :value="currentTab"
+                        />
                     </div>
                 </div>
             </div>
@@ -723,6 +717,15 @@ const handleOpenSetting = async () => {
                     right: 0;
                     bottom: 0;
                     overflow: hidden;
+
+                    .tab-panel-content {
+                        position: absolute;
+                        top: 0;
+                        left: 0;
+                        right: 0;
+                        bottom: 0;
+                        overflow: hidden;
+                    }
                 }
             }
         }

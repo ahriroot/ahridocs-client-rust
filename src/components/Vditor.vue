@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, watch, onMounted } from "vue"
-
 import { useIndexStore } from "@/store"
+
+import { convertFileSrc } from "@tauri-apps/api/tauri"
 
 import Vditor from "vditor"
 import "vditor/dist/index.css"
@@ -60,6 +61,13 @@ onMounted(() => {
             height: "100%",
             width: "100%",
             theme: theme,
+            upload: {
+                handler(files: File[]) {
+                    console.log(files)
+                    // const assetUrl = convertFileSrc(filePath)
+                    return ""
+                },
+            },
             preview: {
                 mode: "both",
                 theme: {

@@ -77,7 +77,7 @@ const handleChange = (editor: IDomEditor) => {
 
 <template>
     <div id="wanteditor" :class="indexStore.theme">
-        <Toolbar style="" :editor="editorRef" :defaultConfig="toolbarConfig" :mode="mode" />
+        <Toolbar class="toolbar" :editor="editorRef" :defaultConfig="toolbarConfig" :mode="mode" />
         <Editor
             style="height: 100%; overflow-y: hidden"
             v-model="valueHtml"
@@ -97,6 +97,10 @@ const handleChange = (editor: IDomEditor) => {
     right: -17px;
     bottom: 0;
     overflow: hidden;
+
+    .toolbar {
+        border-top: 1px solid var(--w-e-toolbar-border-color);
+    }
 }
 
 #wanteditor.dark {
@@ -134,7 +138,7 @@ const handleChange = (editor: IDomEditor) => {
 
     // toolbar - css vars
     --w-e-toolbar-color: #595959;
-    --w-e-toolbar-bg-color: #fff;
+    --w-e-toolbar-bg-color: #f3f6f8;
     --w-e-toolbar-active-color: #333;
     --w-e-toolbar-active-bg-color: #f1f1f1;
     --w-e-toolbar-disabled-color: #999;

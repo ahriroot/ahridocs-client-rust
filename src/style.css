@@ -38,8 +38,12 @@ body {
     background-color: #fafbfc !important;
 }
 
-.vditor-toolbar {
-    display: none;
+.dark .vditor-toolbar {
+    border-top: 1px solid #2f363d;
+}
+
+.light .vditor-toolbar {
+    border-top: 1px solid #d1d5da;
 }
 
 .nocopy {
