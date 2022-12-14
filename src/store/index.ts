@@ -99,10 +99,20 @@ const defaultConfig = (): Config => {
     return config
 }
 
+const getFolder = (): string => {
+    let base = localStorage.getItem('folder')
+    if (!base) {
+        base = '/'
+        localStorage.setItem('folder', base)
+    }
+    return base
+}
+
 export const useIndexStore = defineStore<
     'index',
     {
         config: Config
+        base: string
     },
     {
         theme(state: any): string
@@ -111,12 +121,14 @@ export const useIndexStore = defineStore<
     },
     {
         updateConfig(config: { [x: string]: any }): Promise<void>
+        updateBase(base: string): Promise<void>
     }
 >({
     id: 'index',
     state: () => {
         return {
-            config: defaultConfig()
+            config: defaultConfig(),
+            base: getFolder()
         }
     },
     getters: {
@@ -135,6 +147,10 @@ export const useIndexStore = defineStore<
             let c = { ...this.config, ...config }
             localStorage.setItem('config', JSON.stringify(c))
             this.config = c
+        },
+        async updateBase(base: string) {
+            localStorage.setItem('folder', base)
+            this.base = base
         }
     }
 })

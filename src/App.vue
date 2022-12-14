@@ -6,11 +6,9 @@ import { useIndexStore } from "@/store"
 import { listen, UnlistenFn, emit } from "@tauri-apps/api/event"
 import { invoke } from "@tauri-apps/api/tauri"
 import { exit } from "@tauri-apps/api/process"
-import { appDataDir, join } from "@tauri-apps/api/path"
-import { convertFileSrc } from "@tauri-apps/api/tauri"
 
 import { NConfigProvider, NGlobalStyle, darkTheme, NButton, NIcon } from "naive-ui"
-import { Close as IconClose, Cog, FolderSharp, CloseCircle } from "@vicons/ionicons5"
+import { Close as IconClose, Cog, FolderSharp, CloseCircle, CloudUploadSharp } from "@vicons/ionicons5"
 
 import FileTreeVue from "@/components/FileTree.vue"
 import VditorVue from "@/components/Vditor.vue"
@@ -40,10 +38,13 @@ onBeforeMount(async () => {
     unlisten = await listen<any>("file-system-changed", async event => {
         switch (event.payload.type_) {
             case 1: // create folder
+                await openFolder(folder.value)
                 break
             case 2: // create file
+                await openFolder(folder.value)
                 break
             case 3: // write folder
+                await openFolder(folder.value)
                 break
             case 4: // write file
                 if (save.value) {
@@ -60,10 +61,14 @@ onBeforeMount(async () => {
                 }
                 break
             case 5: // rename
+                await openFolder(folder.value)
                 break
             case -1: // delete folder
+                await openFolder(folder.value)
                 break
             case -2: // delete file
+                await handleTabClosed(event.payload.path)
+                await openFolder(folder.value)
                 break
         }
     })
@@ -125,12 +130,6 @@ const serResizeable = (ev: MouseEvent) => {
     oldX.value = ev.clientX
 }
 onMounted(async () => {
-    const appDataDirPath = await appDataDir()
-    const filePath = await join(appDataDirPath, 'files\\1.jpg');
-    console.log(filePath)
-    const assetUrl = convertFileSrc(filePath)
-    console.log(assetUrl)
-
     document.body.addEventListener("mousemove", ev => {
         if (resizeable.value) {
             let newWidth = oldWidth.value + ev.clientX - oldX.value
@@ -165,7 +164,7 @@ const folder = ref("")
 const showTree = ref(true)
 const openFolder = async (path: string) => {
     const open = await invoke<FileTree[]>("open", { path })
-    if (open.length > 0) {
+    if (open && open.length > 0) {
         filetree.value = open
         showTree.value = false
         nextTick(() => {
@@ -179,7 +178,7 @@ const selectFolder = async () => {
     const select = await invoke<{ type_: number; path: string }>("select")
     if (select.type_ === 0) {
         folder.value = select.path
-        localStorage.setItem("folder", select.path)
+        await indexStore.updateBase(select.path)
         localStorage.removeItem("defaultExpandedKeys")
         tabs.value = []
         await openFolder(select.path)
@@ -195,15 +194,28 @@ const closeFolder = async () => {
         type_: -100,
         path: "",
     })
+    currentTab.value = {
+        name: "",
+        path: "",
+        type_: 0,
+        updated: 0,
+        content: "",
+        changed: false,
+    }
     tabs.value = []
     folder.value = ""
-    currentTab.value.name = ""
     localStorage.removeItem("folder")
     localStorage.removeItem("defaultExpandedKeys")
     localStorage.removeItem("tab")
     localStorage.removeItem("tabs")
     if (filetreeRef.value) {
         filetreeRef.value.handleClose()
+    }
+}
+
+const sync = async () => {
+    if (filetreeRef.value) {
+        await filetreeRef.value.handleExpand()
     }
 }
 
@@ -219,8 +231,11 @@ const currentTab = ref<DocFile>({
 
 const handleTabChanged = async (data: DocFile | null) => {
     if (data) {
-        currentTab.value = data
-        localStorage.setItem("tab", currentTab.value.path)
+        await handleOpenFile({
+            type: data.type_,
+            name: data.name,
+            key: data.path,
+        })
     } else {
         currentTab.value = {
             name: "",
@@ -336,23 +351,12 @@ const handleTabClosed = async (path: string) => {
         <div id="container" class="container" :class="indexStore.theme">
             <aside data-tauri-drag-region class="aside">
                 <div class="top">
-                    <svg
-                        @click="handleRelaod"
-                        title="AhriDocs Reload"
-                        t="1669484176886"
-                        class="logo"
-                        viewBox="0 0 1024 1024"
-                        version="1.1"
-                        xmlns="http://www.w3.org/2000/svg"
-                        p-id="6458"
-                        width="24"
-                        height="24"
-                    >
+                    <svg @click="handleRelaod" title="AhriDocs Reload" t="1669484176886" class="logo"
+                        viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="6458" width="24"
+                        height="24">
                         <path
                             d="M512 448V0H64v1024h896V448H512zM192 256h192v64H192V256z m640 576H192v-64h640v64z m0-256H192V512h640v64z"
-                            p-id="6459"
-                            fill="#1296db"
-                        ></path>
+                            p-id="6459" fill="#1296db"></path>
                         <path d="M576 384h384L576 0v384z" p-id="6460" fill="#1296db"></path>
                     </svg>
                 </div>
@@ -380,20 +384,20 @@ const handleTabClosed = async (path: string) => {
                             <FolderSharp />
                         </NIcon>
                     </button>
-                    <button class="btn" @click="closeFolder">
+                    <button v-show="folder != ''" class="btn" @click="closeFolder">
                         <NIcon size="18">
                             <CloseCircle />
                         </NIcon>
                     </button>
+                    <button v-show="folder != ''" class="btn" @click="sync">
+                        <NIcon size="18">
+                            <CloudUploadSharp />
+                        </NIcon>
+                    </button>
                 </div>
                 <div class="file-tree-body">
-                    <FileTreeVue
-                        v-if="showTree"
-                        ref="filetreeRef"
-                        @handleOpenFile="handleOpenFile"
-                        :value="filetree"
-                        :theme="indexStore.theme"
-                    />
+                    <FileTreeVue v-if="showTree" ref="filetreeRef" @handleOpenFile="handleOpenFile" :value="filetree"
+                        :theme="indexStore.theme" />
                 </div>
             </div>
             <div class="split" @mousedown="serResizeable" :style="`left: ${width + 50}px`"></div>
@@ -401,16 +405,10 @@ const handleTabClosed = async (path: string) => {
                 <div class="tab" :class="indexStore.theme">
                     <div class="tab-bar nocopy">
                         <div data-tauri-drag-region class="title"></div>
-                        <div
-                            v-for="item in tabs"
-                            :key="item.name"
-                            class="tab-bar-item"
-                            :class="{
-                                active: item.name === currentTab.name,
-                                changed: item.changed,
-                            }"
-                            @click="handleTabChanged(item)"
-                        >
+                        <div v-for="item in tabs" :key="item.name" class="tab-bar-item" :class="{
+                            active: item.name === currentTab.name,
+                            changed: item.changed,
+                        }" @click="handleTabChanged(item)">
                             <span class="icon">
                                 <component :is="iconComponent[item.type_]" />
                             </span>
@@ -423,14 +421,9 @@ const handleTabClosed = async (path: string) => {
                         <div class="bg"></div>
                     </div>
                     <div class="tab-panel">
-                        <component
-                            v-if="currentTab.path != ''"
-                            :is="tabsComponent[currentTab.type_]"
-                            :mode="indexStore.config.mdMode"
-                            :key="key"
-                            @handleUpdateFile="handleUpdateFile"
-                            :value="currentTab"
-                        />
+                        <component v-if="currentTab.path != ''" :is="tabsComponent[currentTab.type_]"
+                            :mode="indexStore.config.mdMode" :key="key" @handleUpdateFile="handleUpdateFile"
+                            :value="currentTab" />
                     </div>
                 </div>
             </div>
@@ -443,24 +436,29 @@ const handleTabClosed = async (path: string) => {
     svg path {
         fill: #586069;
     }
+
     svg.logo path {
         cursor: pointer;
     }
 }
+
 #container.dark {
     svg.logo path {
         fill: #c6d5da;
     }
+
     .tab-view-container {
         .tab {
             .tab-bar {
                 .tab-bar-item {
                     &.active {
+
                         svg.md path,
                         svg.word path,
                         svg.setting path {
                             fill: #c6d5da;
                         }
+
                         svg.close path,
                         svg.point path {
                             fill: #909da0;
@@ -471,20 +469,24 @@ const handleTabClosed = async (path: string) => {
         }
     }
 }
+
 #container.light {
     svg.logo path {
         fill: #55595e;
     }
+
     .tab-view-container {
         .tab {
             .tab-bar {
                 .tab-bar-item {
                     &.active {
+
                         svg.md path,
                         svg.word path,
                         svg.setting path {
                             fill: #24292e;
                         }
+
                         svg.close path,
                         svg.point path {
                             fill: #909da0;
@@ -507,6 +509,7 @@ const handleTabClosed = async (path: string) => {
     display: flex;
     justify-content: flex-start;
     align-items: center;
+
     .btn {
         margin-left: 6px;
         border: none;
@@ -516,6 +519,7 @@ const handleTabClosed = async (path: string) => {
         cursor: pointer;
     }
 }
+
 .dark .btn {
     background-color: #1d2125;
     color: #eee;
@@ -539,6 +543,7 @@ const handleTabClosed = async (path: string) => {
     width: 100%;
     overflow: hidden;
     position: relative;
+
     .aside {
         position: absolute;
         top: 0;
@@ -550,6 +555,7 @@ const handleTabClosed = async (path: string) => {
         flex-direction: column;
         justify-content: space-between;
         align-items: center;
+
         .top {
             width: 100%;
             display: flex;
@@ -557,6 +563,7 @@ const handleTabClosed = async (path: string) => {
             align-items: center;
             padding-top: 10px;
         }
+
         .bottom {
             width: 100%;
             height: 76px;
@@ -567,11 +574,13 @@ const handleTabClosed = async (path: string) => {
             padding-bottom: 10px;
         }
     }
+
     .file-tree-container {
         position: absolute;
         top: 0;
         left: 50px;
         bottom: 0;
+
         .file-tree-body {
             position: absolute;
             top: 46px;
@@ -580,6 +589,7 @@ const handleTabClosed = async (path: string) => {
             bottom: 0;
         }
     }
+
     .split {
         position: absolute;
         top: 0;
@@ -587,17 +597,20 @@ const handleTabClosed = async (path: string) => {
         width: 5px;
         cursor: ew-resize;
     }
+
     .tab-view-container {
         position: absolute;
         top: 0;
         bottom: 0;
         right: 0;
+
         .tab {
             position: absolute;
             top: 0;
             left: 0;
             right: 0;
             bottom: 0;
+
             .tab-bar {
                 position: absolute;
                 top: 0;
@@ -607,6 +620,7 @@ const handleTabClosed = async (path: string) => {
                 display: flex;
                 overflow-y: hidden;
                 overflow-x: scroll;
+
                 .title {
                     z-index: 1;
                     position: absolute;
@@ -615,6 +629,7 @@ const handleTabClosed = async (path: string) => {
                     right: 0;
                     height: 40px;
                 }
+
                 .bg {
                     position: absolute;
                     left: 0;
@@ -622,24 +637,30 @@ const handleTabClosed = async (path: string) => {
                     bottom: 0;
                     height: 6px;
                 }
+
                 &::-webkit-scrollbar {
                     height: 6px;
                     display: none;
                 }
+
                 &:hover {
                     .bg {
                         display: none;
                     }
+
                     &::-webkit-scrollbar {
                         display: inline-block;
                     }
                 }
+
                 &::-webkit-scrollbar {
                     background-color: transparent;
                 }
+
                 &::-webkit-scrollbar-track {
                     background-color: transparent;
                 }
+
                 .tab-bar-item {
                     z-index: 2;
                     display: inline-block;
@@ -650,6 +671,7 @@ const handleTabClosed = async (path: string) => {
                     display: flex;
                     justify-content: space-between;
                     align-items: center;
+
                     .name {
                         max-width: 200px;
                         overflow: hidden;
@@ -657,43 +679,54 @@ const handleTabClosed = async (path: string) => {
                         white-space: nowrap;
                         padding: 0 6px;
                     }
+
                     .close-btn {
                         width: 12px;
                         display: inline-block;
                         margin-left: 10px;
+
                         .point {
                             display: none;
                         }
+
                         .close {
                             display: none;
                         }
                     }
+
                     &:hover {
                         .point {
                             display: none;
                         }
+
                         .close {
                             display: block;
                         }
                     }
+
                     &.active {
                         .point {
                             display: none;
                         }
+
                         .close {
                             display: block;
                         }
+
                         &.changed {
                             .point {
                                 display: block;
                             }
+
                             .close {
                                 display: none;
                             }
+
                             &:hover {
                                 .point {
                                     display: none;
                                 }
+
                                 .close {
                                     display: block;
                                 }
@@ -702,6 +735,7 @@ const handleTabClosed = async (path: string) => {
                     }
                 }
             }
+
             .tab-panel {
                 position: absolute;
                 top: 40px;
@@ -734,36 +768,47 @@ const handleTabClosed = async (path: string) => {
 
 #container.container.dark {
     background: #24292e;
+
     .aside {
         background: #1d2125;
     }
+
     .file-tree-container {
         background: #24292e;
+
         .header {
             background: #1d2125;
         }
     }
+
     .split {
         background: #1d2125;
     }
+
     .tab-view-container {
         .tab {
             .tab-bar {
                 background: #1d2125;
+
                 .bg {
                     background: #24292e;
                 }
+
                 &::-webkit-scrollbar {
                     background-color: #24292e;
                 }
+
                 &::-webkit-scrollbar-track {
                     background-color: #24292e;
                 }
+
                 &::-webkit-scrollbar-thumb {
                     background: #2d2f33;
                 }
+
                 .tab-bar-item {
                     color: #586069;
+
                     &.active {
                         color: #c6d5da;
                         border-bottom: 2px solid #c6d5da;
@@ -777,36 +822,47 @@ const handleTabClosed = async (path: string) => {
 
 #container.container.light {
     background: #ffffff;
+
     .aside {
         background: #f3f6f8;
     }
+
     .file-tree-container {
         background: #ffffff;
+
         .header {
             background: #f3f6f8;
         }
     }
+
     .split {
         background: #f3f6f8;
     }
+
     .tab-view-container {
         .tab {
             .tab-bar {
                 .bg {
                     background: #fafbfc;
                 }
+
                 background: #f3f6f8;
+
                 &::-webkit-scrollbar {
                     background-color: #fafbfc;
                 }
+
                 &::-webkit-scrollbar-track {
                     background-color: #fafbfc;
                 }
+
                 &::-webkit-scrollbar-thumb {
                     background: #e1e4e8;
                 }
+
                 .tab-bar-item {
                     color: #586069;
+
                     &.active {
                         color: #24292e;
                         border-bottom: 2px solid #24292e;

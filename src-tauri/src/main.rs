@@ -44,46 +44,68 @@ struct OpenFolder {
     path: Box<String>,
 }
 
-fn read_dir(path: &Path) -> Vec<FileTree> {
+fn read_dir(path: &Path, depth: i32) -> Result<Vec<FileTree>, std::io::Error> {
     let mut result = Vec::new();
-    for entry in std::fs::read_dir(path).unwrap() {
-        let entry = entry.unwrap();
-        let path = entry.path();
-        let type_;
-        if path.is_dir() {
-            type_ = 0
-        } else {
-            let ext = path.extension().unwrap().to_str().unwrap();
-            if ext == "md" {
-                type_ = 1
-            } else if ext == "ahtml" {
-                type_ = 2
-            } else {
-                continue;
+    match std::fs::read_dir(path) {
+        Ok(dir) => {
+            for entry in dir {
+                if depth == 0 && entry.as_ref().unwrap().file_name() == ".ahriknow" {
+                    continue;
+                }
+                let entry = entry.unwrap();
+                let path = entry.path();
+                let type_;
+                if path.is_dir() {
+                    type_ = 0
+                } else {
+                    match path.extension() {
+                        None => continue,
+                        Some(ext) => {
+                            let ext = ext.to_str().unwrap();
+                            if ext == "md" {
+                                type_ = 1
+                            } else if ext == "ahtml" {
+                                type_ = 2
+                            } else {
+                                continue;
+                            }
+                        }
+                    }
+                }
+                let metadata = std::fs::metadata(&path).unwrap();
+                let file_tree = FileTree {
+                    type_,
+                    name: entry.file_name().to_str().unwrap().to_string(),
+                    path: path.to_str().unwrap().to_string(),
+                    updated: metadata.modified().unwrap().elapsed().unwrap().as_micros() as i64,
+                    children: if path.is_dir() {
+                        match read_dir(&path, depth + 1) {
+                            Ok(children) => Some(children),
+                            Err(e) => return Err(e),
+                        }
+                    } else {
+                        None
+                    },
+                };
+                result.push(file_tree);
             }
         }
-        let metadata = std::fs::metadata(&path).unwrap();
-        let file_tree = FileTree {
-            type_,
-            name: entry.file_name().to_str().unwrap().to_string(),
-            path: path.to_str().unwrap().to_string(),
-            updated: metadata.modified().unwrap().elapsed().unwrap().as_micros() as i64,
-            children: if path.is_dir() {
-                Some(read_dir(&path))
-            } else {
-                None
-            },
-        };
-        result.push(file_tree);
+        Err(e) => return Err(e),
     }
-    result
+
+    Ok(result)
 }
 
 #[tauri::command]
 fn open(path: String) -> Option<Vec<FileTree>> {
     let path = Path::new(&path);
-    let filetree: Vec<FileTree> = read_dir(path);
-    Some(filetree)
+    match read_dir(path, 0) {
+        Ok(filetree) => Some(filetree),
+        Err(e) => {
+            println!("{:?}", e);
+            None
+        }
+    }
 }
 
 #[tauri::command]
@@ -119,6 +141,38 @@ struct OpenFile {
     path: String,
     content: String,
     updated: i64,
+}
+
+#[tauri::command]
+fn create(path: String, name: String, is_dir: bool) -> Option<OpenFile> {
+    let path = Path::new(&path);
+    let path = path.join(name);
+    if path.exists() {
+        return None;
+    }
+    if is_dir {
+        std::fs::create_dir(&path).unwrap();
+    } else {
+        std::fs::File::create(&path).unwrap();
+    }
+    let metadata = std::fs::metadata(&path).unwrap();
+    let open_file = OpenFile {
+        type_: 0,
+        path: path.to_str().unwrap().to_string(),
+        content: "".to_string(),
+        updated: metadata.modified().unwrap().elapsed().unwrap().as_micros() as i64,
+    };
+    Some(open_file)
+}
+
+#[tauri::command]
+fn delete(path: String, is_dir: bool) -> bool {
+    let path = Path::new(&path);
+    if is_dir {
+        std::fs::remove_dir_all(&path).is_ok()
+    } else {
+        std::fs::remove_file(&path).is_ok()
+    }
 }
 
 #[tauri::command]
@@ -176,6 +230,40 @@ fn write(path: String, content: String) -> Option<OpenFile> {
     } else {
         None
     }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct Config {
+    token: String,
+    project: String,
+}
+
+#[tauri::command]
+fn get_config(path: String) -> Config {
+    // path + ".ahriknow" + "config.json"
+    let path = Path::new(&path);
+    let config_path = path.join(".ahriknow").join("config.json");
+    if !config_path.exists() {
+        std::fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &config_path,
+            "{\n  \"token\": \"\",\n  \"project\": \"\"\n}",
+        )
+        .unwrap();
+    }
+    let content = std::fs::read_to_string(&config_path).unwrap();
+    let config: Config = serde_json::from_str(&content).unwrap();
+    config
+}
+
+#[tauri::command]
+fn set_config(path: String, config: Config) -> bool {
+    // path + ".ahriknow" + "config.json"
+    let path = Path::new(&path);
+    let config_path = path.join(".ahriknow").join("config.json");
+    let content = serde_json::to_string_pretty(&config).unwrap();
+    std::fs::write(&config_path, content).unwrap();
+    true
 }
 
 #[tokio::main]
@@ -350,9 +438,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             close_splashscreen,
             select,
             open,
+            create,
+            delete,
             read,
             reads,
-            write
+            write,
+            get_config,
+            set_config,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

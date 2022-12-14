@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { ref } from "vue"
+import { ref, onBeforeMount } from "vue"
 import { useIndexStore } from "@/store"
+import { invoke } from "@tauri-apps/api/tauri"
+
 import type { Config } from "@/types"
 
 const props = defineProps<{ value: undefined; mode: undefined }>()
@@ -11,6 +13,19 @@ const emits = defineEmits<{
 const indexStore = useIndexStore()
 
 const config = ref<Config>({ ...indexStore.config })
+
+const project_config = ref<{ project: string; token: string }>({
+    token: "",
+    project: "",
+})
+
+onBeforeMount(async () => {
+    let folder: string = localStorage.getItem("folder") || ""
+    let base = folder
+    project_config.value = await invoke<{ project: string; token: string }>("get_config", {
+        path: base,
+    })
+})
 
 const handleSetTheme = async (theme: string) => {
     config.value.theme = theme
@@ -31,10 +46,33 @@ const handleSetMdMode = async (mode: "ir" | "sv" | "wysiwyg") => {
     config.value.mdMode = mode
     await indexStore.updateConfig(config.value)
 }
+
+const handlePrjojectChanged = async () => {
+    await invoke("set_config", {
+        path: localStorage.getItem("folder") || "",
+        config: {
+            project: project_config.value.project,
+            token: project_config.value.token,
+        },
+    })
+}
 </script>
 
 <template>
     <div id="settings" class="nocopy">
+        <h2>Project:</h2>
+        <div class="config-value">
+            <h3>Token: &nbsp;</h3>
+            <div class="config-input">
+                <input type="text" v-model="project_config.token" @blur="handlePrjojectChanged" />
+            </div>
+        </div>
+        <div class="config-value">
+            <h3>Project: &nbsp;</h3>
+            <div class="config-input">
+                <input type="text" v-model="project_config.project" @blur="handlePrjojectChanged" />
+            </div>
+        </div>
         <h2>Theme:</h2>
         <div class="config-value">
             <div
@@ -134,6 +172,16 @@ const handleSetMdMode = async (mode: "ir" | "sv" | "wysiwyg") => {
             cursor: pointer;
             transition: all 0.2s ease-in-out;
         }
+        .config-input {
+            input {
+                width: 200px;
+                height: 26px;
+                padding: 0 10px;
+                outline: none;
+                background: none;
+                border: none;
+            }
+        }
     }
 }
 
@@ -148,6 +196,12 @@ const handleSetMdMode = async (mode: "ir" | "sv" | "wysiwyg") => {
                 background-color: #1d2125;
             }
         }
+        .config-input {
+            input {
+                color: #d7d8d9;
+                border-bottom: 2px solid #d7d8d9;
+            }
+        }
     }
 }
 
@@ -160,6 +214,12 @@ const handleSetMdMode = async (mode: "ir" | "sv" | "wysiwyg") => {
 
             &.active {
                 background-color: #f3f6f8;
+            }
+        }
+        .config-input {
+            input {
+                color: #000;
+                border-bottom: 2px solid #000;
             }
         }
     }
