@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, shallowRef, onBeforeMount, onMounted, onBeforeUnmount } from "vue"
+import { ref, shallowRef, onBeforeMount, onBeforeUnmount, computed } from "vue"
 
 import { useIndexStore } from "@/store"
 
@@ -19,30 +19,20 @@ const indexStore = useIndexStore()
 const init = ref(false)
 const editorRef = shallowRef()
 const valueHtml = ref(props.value.content)
+const display = computed(() => (indexStore.showAhtmlToolbar ? "block" : "none"))
 
-onMounted(() => {})
+const getToolbarKeys = (): string[] => {
+    let toolbar: string[] = []
+    for (let key in indexStore.config.ahtmlToolbar) {
+        if (indexStore.config.ahtmlToolbar[key]) {
+            toolbar.push(key)
+        }
+    }
+    return toolbar
+}
 
 const toolbarConfig = {
-    toolbarKeys: [
-        // 菜单 key
-        "headerSelect",
-
-        // 分割线
-        "|",
-
-        // 菜单 key
-        "bold",
-        "italic",
-
-        // 菜单组，包含多个菜单
-        {
-            key: "group-more-style", // 必填，要以 group 开头
-            title: "更多样式", // 必填
-            iconSvg: "<svg>....</svg>", // 可选
-            menuKeys: ["through", "code", "clearStyle"], // 下级菜单 key ，必填
-        },
-        // 继续配置其他菜单...
-    ],
+    toolbarKeys: getToolbarKeys(),
 }
 const editorConfig = {
     placeholder: "请输入内容",
@@ -69,7 +59,7 @@ const handleCreated = (editor: any) => {
 
 const handleChange = (editor: IDomEditor) => {
     let html = editor.getHtml()
-    if (init.value, html != props.value.content) {
+    if ((init.value, html != props.value.content)) {
         emits("handleUpdateFile", { path: props.value.path, content: html })
     }
 }
@@ -94,11 +84,12 @@ const handleChange = (editor: IDomEditor) => {
     position: absolute;
     top: 0;
     left: 0;
-    right: -17px;
+    right: 0;
     bottom: 0;
     overflow: hidden;
 
     .toolbar {
+        display: v-bind(display);
         border-top: 1px solid var(--w-e-toolbar-border-color);
     }
 }

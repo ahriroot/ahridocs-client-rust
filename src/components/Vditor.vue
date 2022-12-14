@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onMounted } from "vue"
+import { ref, watch, onMounted, computed } from "vue"
 import { useIndexStore } from "@/store"
 
 import { convertFileSrc } from "@tauri-apps/api/tauri"
@@ -16,6 +16,7 @@ const emits = defineEmits<{
 
 const indexStore = useIndexStore()
 const vditor = ref<Vditor | null>(null)
+const display = computed(() => (indexStore.showMdToolbar ? "block" : "none"))
 
 const getTheme = () => {
     let theme: "dark" | "classic" = indexStore.theme == "dark" ? "dark" : "classic"
@@ -46,6 +47,13 @@ watch(
 const elementRef = ref<HTMLElement | null>(null)
 onMounted(() => {
     if (elementRef.value) {
+        let toolbar: string[] = []
+        for (let key in indexStore.config.mdToolbar) {
+            if (indexStore.config.mdToolbar[key]) {
+                toolbar.push(key)
+            }
+        }
+
         let mode: "ir" | "wysiwyg" | "sv" | undefined = props.mode
         if (mode == undefined) {
             mode = "ir"
@@ -54,6 +62,7 @@ onMounted(() => {
         vditor.value = new Vditor(elementRef.value, {
             mode: mode,
             placeholder: "请输入内容",
+            toolbar: toolbar,
             tab: "    ",
             input(value: string) {
                 emits("handleUpdateFile", { path: props.value.path, content: value })
@@ -113,5 +122,9 @@ onMounted(() => {
     right: -17px;
     bottom: 0;
     overflow: hidden;
+}
+
+:deep(.vditor-toolbar) {
+    display: v-bind(display);
 }
 </style>

@@ -1,6 +1,8 @@
 export interface Config {
     theme: string
     mdMode: "ir" | "sv" | "wysiwyg"
+    mdToolbar: { [x: string]: boolean }
+    ahtmlToolbar: { [x: string]: boolean }
 }
 export interface FileTree {
     type_: number

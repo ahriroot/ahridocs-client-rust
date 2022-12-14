@@ -64,7 +64,7 @@ body {
 }
 
 .dark ::-webkit-scrollbar-thumb {
-    background: #2d2f33;
+    background: #53565f;
 }
 
 .light ::-webkit-scrollbar-thumb {

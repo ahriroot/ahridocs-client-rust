@@ -17,6 +17,16 @@ const handleSetTheme = async (theme: string) => {
     await indexStore.updateConfig(config.value)
 }
 
+const handleSetMdToolbar = async (key: string) => {
+    config.value.mdToolbar[key] = !config.value.mdToolbar[key]
+    await indexStore.updateConfig(config.value)
+}
+
+const handleSetAHtmlToolbar = async (key: string) => {
+    config.value.ahtmlToolbar[key] = !config.value.ahtmlToolbar[key]
+    await indexStore.updateConfig(config.value)
+}
+
 const handleSetMdMode = async (mode: "ir" | "sv" | "wysiwyg") => {
     config.value.mdMode = mode
     await indexStore.updateConfig(config.value)
@@ -67,6 +77,29 @@ const handleSetMdMode = async (mode: "ir" | "sv" | "wysiwyg") => {
                 <p>wysiwyg</p>
             </div>
         </div>
+        <div class="config-value">
+            <h3>Toolbar: &nbsp;</h3>
+            <div
+                v-for="(item, key) in config.mdToolbar"
+                class="config-radio"
+                :class="{ active: item }"
+                @click="handleSetMdToolbar(key as string)"
+            >
+                <p>{{ key }}</p>
+            </div>
+        </div>
+        <h2>AHtml:</h2>
+        <div class="config-value">
+            <h3>Toolbar: &nbsp;</h3>
+            <div
+                v-for="(item, key) in config.ahtmlToolbar"
+                class="config-radio"
+                :class="{ active: item }"
+                @click="handleSetAHtmlToolbar(key as string)"
+            >
+                <p>{{ key }}</p>
+            </div>
+        </div>
     </div>
 </template>
 
@@ -89,6 +122,7 @@ const handleSetMdMode = async (mode: "ir" | "sv" | "wysiwyg") => {
 
     .config-value {
         display: flex;
+        flex-wrap: wrap;
         justify-content: flex-start;
         align-items: center;
         padding-left: 20px;
