@@ -32,6 +32,11 @@ const handleSetTheme = async (theme: string) => {
     await indexStore.updateConfig(config.value)
 }
 
+const handleSetWatch = async (watch: boolean) => {
+    config.value.watch = watch
+    await indexStore.updateConfig(config.value)
+}
+
 const handleSetMdToolbar = async (key: string) => {
     config.value.mdToolbar[key] = !config.value.mdToolbar[key]
     await indexStore.updateConfig(config.value)
@@ -88,6 +93,23 @@ const handlePrjojectChanged = async () => {
                 @click="handleSetTheme('light')"
             >
                 <p>Light</p>
+            </div>
+        </div>
+        <h2>Watch(relunch):</h2>
+        <div class="config-value">
+            <div
+                class="config-radio"
+                :class="{ active: config.watch === true }"
+                @click="handleSetWatch(true)"
+            >
+                <p>True</p>
+            </div>
+            <div
+                class="config-radio"
+                :class="{ active: config.watch === false }"
+                @click="handleSetWatch(false)"
+            >
+                <p>False</p>
             </div>
         </div>
         <h2>Markdown:</h2>

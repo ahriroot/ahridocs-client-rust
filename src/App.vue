@@ -7,7 +7,7 @@ import { listen, UnlistenFn, emit } from "@tauri-apps/api/event"
 import { invoke } from "@tauri-apps/api/tauri"
 import { exit } from "@tauri-apps/api/process"
 
-import { NConfigProvider, NGlobalStyle, darkTheme, NButton, NIcon } from "naive-ui"
+import { NConfigProvider, NDialogProvider, NGlobalStyle, darkTheme, NButton, NIcon } from "naive-ui"
 import { Close as IconClose, Cog, FolderSharp, CloseCircle, CloudUploadSharp } from "@vicons/ionicons5"
 
 import FileTreeVue from "@/components/FileTree.vue"
@@ -59,6 +59,7 @@ onBeforeMount(async () => {
                     has.content = file.content
                     has.updated = file.updated
                 }
+                key.value++
                 break
             case 5: // rename
                 await openFolder(folder.value)
@@ -84,10 +85,12 @@ onBeforeMount(async () => {
     })
     let f = localStorage.getItem("folder")
     if (f) {
-        await emit("watch-path-changed", {
-            type_: 0,
-            path: f,
-        })
+        if (indexStore.config.watch) {
+            await emit("watch-path-changed", {
+                type_: 0,
+                path: f,
+            })
+        }
         folder.value = f
         await openFolder(f)
     } else {
@@ -182,7 +185,9 @@ const selectFolder = async () => {
         localStorage.removeItem("defaultExpandedKeys")
         tabs.value = []
         await openFolder(select.path)
-        emit("watch-path-changed", select)
+        if (indexStore.config.watch) {
+            emit("watch-path-changed", select)
+        }
     } else {
         // alert("No folder selected")
     }
@@ -190,10 +195,12 @@ const selectFolder = async () => {
 
 const filetreeRef = ref()
 const closeFolder = async () => {
-    emit("watch-path-changed", {
-        type_: -100,
-        path: "",
-    })
+    if (indexStore.config.watch) {
+        emit("watch-path-changed", {
+            type_: -100,
+            path: "",
+        })
+    }
     currentTab.value = {
         name: "",
         path: "",
@@ -249,7 +256,12 @@ const handleTabChanged = async (data: DocFile | null) => {
 }
 
 const handleOpenFile = async (t: any) => {
-    if (t.type === 0) {
+    if (t.type === 0) {  // setting tab
+        let has = tabs.value.find(v => v.path === t.key)
+        if (has) {
+            currentTab.value = has
+            return
+        }
         let tmp = {
             type_: t.type,
             name: t.name,
@@ -268,7 +280,7 @@ const handleOpenFile = async (t: any) => {
         path: t.key,
     })
     let has = tabs.value.find(v => v.path === t.key)
-    if (has) {
+    if (has) {  // 已存在 tab
         has.content = file.content
         has.updated = file.updated
         currentTab.value = has
@@ -347,87 +359,89 @@ const handleTabClosed = async (path: string) => {
 
 <template>
     <NConfigProvider :theme="indexStore.theme == 'dark' ? darkTheme : null">
-        <NGlobalStyle />
-        <div id="container" class="container" :class="indexStore.theme">
-            <aside data-tauri-drag-region class="aside">
-                <div class="top">
-                    <svg @click="handleRelaod" title="AhriDocs Reload" t="1669484176886" class="logo"
-                        viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="6458" width="24"
-                        height="24">
-                        <path
-                            d="M512 448V0H64v1024h896V448H512zM192 256h192v64H192V256z m640 576H192v-64h640v64z m0-256H192V512h640v64z"
-                            p-id="6459" fill="#1296db"></path>
-                        <path d="M576 384h384L576 0v384z" p-id="6460" fill="#1296db"></path>
-                    </svg>
+        <NDialogProvider>
+            <NGlobalStyle />
+            <div id="container" class="container" :class="indexStore.theme">
+                <aside data-tauri-drag-region class="aside">
+                    <div class="top">
+                        <svg @click="handleRelaod" title="AhriDocs Reload" t="1669484176886" class="logo"
+                            viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="6458"
+                            width="24" height="24">
+                            <path
+                                d="M512 448V0H64v1024h896V448H512zM192 256h192v64H192V256z m640 576H192v-64h640v64z m0-256H192V512h640v64z"
+                                p-id="6459" fill="#1296db"></path>
+                            <path d="M576 384h384L576 0v384z" p-id="6460" fill="#1296db"></path>
+                        </svg>
+                    </div>
+                    <div class="bottom">
+                        <n-button circle quaternary size="small" @click.stop="handleOpenSetting">
+                            <template #icon>
+                                <n-icon class="btn-icon-setting">
+                                    <Cog />
+                                </n-icon>
+                            </template>
+                        </n-button>
+                        <n-button circle quaternary size="small" @click.stop="handleExit">
+                            <template #icon>
+                                <n-icon class="btn-icon-setting">
+                                    <IconClose />
+                                </n-icon>
+                            </template>
+                        </n-button>
+                    </div>
+                </aside>
+                <div class="file-tree-container" :style="`width: ${width}px`">
+                    <div data-tauri-drag-region class="header">
+                        <button class="btn" @click="selectFolder">
+                            <NIcon size="18">
+                                <FolderSharp />
+                            </NIcon>
+                        </button>
+                        <button v-show="folder != ''" class="btn" @click="closeFolder">
+                            <NIcon size="18">
+                                <CloseCircle />
+                            </NIcon>
+                        </button>
+                        <button v-show="folder != ''" class="btn" @click="sync">
+                            <NIcon size="18">
+                                <CloudUploadSharp />
+                            </NIcon>
+                        </button>
+                    </div>
+                    <div class="file-tree-body">
+                        <FileTreeVue v-if="showTree" ref="filetreeRef" @handleOpenFile="handleOpenFile"
+                            :value="filetree" :theme="indexStore.theme" />
+                    </div>
                 </div>
-                <div class="bottom">
-                    <n-button circle quaternary size="small" @click.stop="handleOpenSetting">
-                        <template #icon>
-                            <n-icon class="btn-icon-setting">
-                                <Cog />
-                            </n-icon>
-                        </template>
-                    </n-button>
-                    <n-button circle quaternary size="small" @click.stop="handleExit">
-                        <template #icon>
-                            <n-icon class="btn-icon-setting">
-                                <IconClose />
-                            </n-icon>
-                        </template>
-                    </n-button>
-                </div>
-            </aside>
-            <div class="file-tree-container" :style="`width: ${width}px`">
-                <div class="header">
-                    <button class="btn" @click="selectFolder">
-                        <NIcon size="18">
-                            <FolderSharp />
-                        </NIcon>
-                    </button>
-                    <button v-show="folder != ''" class="btn" @click="closeFolder">
-                        <NIcon size="18">
-                            <CloseCircle />
-                        </NIcon>
-                    </button>
-                    <button v-show="folder != ''" class="btn" @click="sync">
-                        <NIcon size="18">
-                            <CloudUploadSharp />
-                        </NIcon>
-                    </button>
-                </div>
-                <div class="file-tree-body">
-                    <FileTreeVue v-if="showTree" ref="filetreeRef" @handleOpenFile="handleOpenFile" :value="filetree"
-                        :theme="indexStore.theme" />
-                </div>
-            </div>
-            <div class="split" @mousedown="serResizeable" :style="`left: ${width + 50}px`"></div>
-            <div class="tab-view-container" :style="`left: ${width + 55}px`">
-                <div class="tab" :class="indexStore.theme">
-                    <div class="tab-bar nocopy">
-                        <div data-tauri-drag-region class="title"></div>
-                        <div v-for="item in tabs" :key="item.name" class="tab-bar-item" :class="{
-                            active: item.name === currentTab.name,
-                            changed: item.changed,
-                        }" @click="handleTabChanged(item)">
-                            <span class="icon">
-                                <component :is="iconComponent[item.type_]" />
-                            </span>
-                            <span class="name">{{ item.name }}</span>
-                            <span class="close-btn">
-                                <Point class="point" />
-                                <Close class="close" @click.stop="handleTabClosed(item.path)" />
-                            </span>
+                <div class="split" @mousedown="serResizeable" :style="`left: ${width + 50}px`"></div>
+                <div class="tab-view-container" :style="`left: ${width + 55}px`">
+                    <div class="tab" :class="indexStore.theme">
+                        <div class="tab-bar nocopy">
+                            <div data-tauri-drag-region class="title"></div>
+                            <div v-for="item in tabs" :key="item.name" class="tab-bar-item" :class="{
+                                active: item.name === currentTab.name,
+                                changed: item.changed,
+                            }" @click="handleTabChanged(item)">
+                                <span class="icon">
+                                    <component :is="iconComponent[item.type_]" />
+                                </span>
+                                <span class="name">{{ item.name }}</span>
+                                <span class="close-btn">
+                                    <Point class="point" />
+                                    <Close class="close" @click.stop="handleTabClosed(item.path)" />
+                                </span>
+                            </div>
+                            <div class="bg"></div>
                         </div>
-                        <div class="bg"></div>
-                    </div>
-                    <div class="tab-panel">
-                        <component v-if="currentTab.path != ''" :is="tabsComponent[currentTab.type_]"
-                            :mode="indexStore.config.mdMode" :key="key" @handleUpdateFile="handleUpdateFile"
-                            :value="currentTab" />
+                        <div class="tab-panel">
+                            <component v-if="currentTab.path != ''" :is="tabsComponent[currentTab.type_]"
+                                :mode="indexStore.config.mdMode" :key="key" @handleUpdateFile="handleUpdateFile"
+                                :value="currentTab" />
+                        </div>
                     </div>
                 </div>
             </div>
-        </div>
+        </NDialogProvider>
     </NConfigProvider>
 </template>
 

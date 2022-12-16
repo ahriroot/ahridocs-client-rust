@@ -1,14 +1,15 @@
 <script setup lang="ts">
-import { h, ref, onBeforeMount, VNodeChild } from "vue"
+import { h, ref, onBeforeMount, VNodeChild, computed } from "vue"
 import { emit } from "@tauri-apps/api/event"
 
-import { NTree, TreeOption, NIcon, NDropdown } from "naive-ui"
+import { NTree, TreeOption, NIcon, NDropdown, useDialog } from "naive-ui"
 import { ChevronForward } from "@vicons/ionicons5"
 import { invoke } from "@tauri-apps/api/tauri"
 
 import type { FileTree } from "@/types"
 import { TreeRenderProps } from "naive-ui/es/tree/src/interface"
 
+import AInputFocus from './AInputFocus.vue'
 import Markdown from "@/components/icons/md.vue"
 import Word from "@/components/icons/word.vue"
 
@@ -17,6 +18,7 @@ const emits = defineEmits<{
     (e: "handleOpenFile", val: any): void
 }>()
 
+const dialog = useDialog()
 const data = ref<TreeOption[] | undefined>()
 const defaultExpandedKeys = ref<string[]>([])
 const handleUpdateExpandedKeys = (keys: any[]) => {
@@ -36,21 +38,24 @@ const tree2array = (
 ): { path: string; fullpath: string; parent: string }[] => {
     let arr: { path: string; fullpath: string; parent: string }[] = []
     tree.forEach((node: any) => {
-        let p = node.key
+        let p = node.path
             .replace(base, "")
             .split(/\\|\//)
             .filter((s: string) => s !== "")
             .join("/")
         if (node.type === 0) {
-            arr.push({ path: p, fullpath: node.key, parent: parent })
+            arr.push({ path: p, fullpath: node.path, parent: parent })
             arr = arr.concat(tree2array(node.children, p, base))
         } else {
-            arr.push({ path: p, fullpath: node.key, parent: parent })
+            arr.push({ path: p, fullpath: node.path, parent: parent })
         }
     })
     return arr
 }
 
+/**
+ * @description: tree to array
+ */
 const handleExpand = async () => {
     let folder: string = localStorage.getItem("folder") || ""
     let base = folder
@@ -74,31 +79,106 @@ defineExpose({
 const renderSwitcherIcon = () => h(NIcon, null, { default: () => h(ChevronForward) })
 
 const renderLabel = ({ option }: TreeRenderProps): VNodeChild => {
-    const { label } = option
-    let icon
-    if (option.type === 1) {
-        icon = h(Markdown)
-    } else if (option.type === 2) {
-        icon = h(Word)
+    if (option.create) {
+        return h(AInputFocus, {
+            value: option.label as string,
+            onUpdateValue: (val: any) => {
+                option.label = val
+                option.name = val
+            },
+            onBlur: async () => {
+                if (option.label === '') {
+                    // delete this node
+                    const parent: TreeOption = option.parent as TreeOption
+                    if (parent) {
+                        const index = parent.children?.indexOf(option)
+                        if (index !== undefined) {
+                            parent.children?.splice(index, 1)
+                        }
+                    }
+                } else {
+                    let name = option.label as string
+                    if (option.type === 1) {
+                        if (!name.endsWith(".md")) {
+                            if (name.endsWith(".")) {
+                                name = name.slice(0, name.length - 1)
+                            }
+                            name += ".md"
+                        }
+                    } else if (option.type === 2) {
+                        if (!name.endsWith(".ahtml")) {
+                            if (name.endsWith(".")) {
+                                name = name.slice(0, name.length - 1)
+                            }
+                            name += ".ahtml"
+                        }
+                    }
+                    let res = await create(option.path as string, name, option.type === 0)
+                    if (option.type === 1 || option.type === 2) {
+                        emits("handleOpenFile", {
+                            type: option.type,
+                            name: name,
+                            path: res.path,
+                        })
+                    }
+                    option.name = option.label as string
+                }
+                option.edit = false
+            }
+        })
+    } else if (option.edit) {
+        return h(AInputFocus, {
+            value: option.label as string,
+            onUpdateValue: (val: any) => {
+                option.label = val
+            },
+            onBlur: async () => {
+                if (option.label !== option.name) {
+                    option.name = option.label as string
+                    const res = await invoke("rename", {
+                        path: option.path,
+                        name: option.label as string,
+                    })
+                    if (res) {
+                        emit("file-system-changed", {
+                            type_: 5,
+                        })
+                    } else {
+                        console.log("error rename" + option.label)
+                    }
+                }
+                option.edit = false
+            }
+        })
     } else {
+        const { label } = option
+        let icon
+        if (option.type === 1) {
+            icon = h(Markdown)
+        } else if (option.type === 2) {
+            icon = h(Word)
+        } else {
+        }
+        return h("span", { class: "tree-label", title: label }, [icon, label])
     }
-    return h("span", { class: "tree-label", title: label }, [icon, label])
 }
 
-const fileToNode = (file: FileTree): TreeOption => {
+const fileToNode = (file: FileTree, parent: TreeOption | undefined): TreeOption => {
     const { name, type_, path, children } = file
-    let c = undefined
-    if (type_ === 0) {
-        c = children?.map(fileToNode)
-    }
-    return {
+    let node: TreeOption = {
         label: name,
         name: name,
+        path: path,
         key: path,
         type: type_,
         edit: false,
-        children: c,
+        create: false,
+        parent: parent,
     }
+    if (type_ === 0) {
+        node.children = children?.map((child) => fileToNode(child, node))
+    }
+    return node
 }
 
 onBeforeMount(async () => {
@@ -106,11 +186,19 @@ onBeforeMount(async () => {
     if (dks) {
         defaultExpandedKeys.value = JSON.parse(dks)
     }
-    data.value = props.value.map(fileToNode)
+    let folder: string = localStorage.getItem("folder") || ""
+    let dt = [{
+        type_: 0,
+        name: "root",
+        path: folder,
+        updated: 0,
+        children: props.value
+    }]
+    data.value = dt.map((file) => fileToNode(file, undefined))
 })
 
-const create = async (path: string, name: string, is_dir: boolean = false) => {
-    const res = await invoke("create", {
+const create = async (path: string, name: string, is_dir: boolean = false): Promise<{ content: string; path: string; type_: number; updated: number }> => {
+    const res = await invoke<{ content: string; path: string; type_: number; updated: number }>("create", {
         path: path,
         name: name,
         isDir: is_dir
@@ -120,6 +208,7 @@ const create = async (path: string, name: string, is_dir: boolean = false) => {
             type_: is_dir ? 1 : 2,
         })
     }
+    return res
 }
 
 const delete_ = async (path: string, is_dir: boolean = false) => {
@@ -149,8 +238,28 @@ const handleContextmenu = (e: MouseEvent) => {
         key: 'create_markdown',
         props: {
             onClick: async () => {
-                console.log('root')
-                showContextmenu.value = false
+                if (data.value) {
+                    let option = data.value[0]
+                    option.children = option.children || []
+                    let i = 0
+                    for (; i < option.children.length; i++) {
+                        if (option.children[i].type !== 0) {
+                            break
+                        }
+                    }
+                    option.children.splice(i, 0, {
+                        label: '',
+                        name: '',
+                        path: option.path,
+                        key: option.key + '#new',
+                        type: 1,
+                        edit: false,
+                        create: true,
+                        children: [],
+                        parent: option
+                    })
+                    showContextmenu.value = false
+                }
             }
         }
     }, {
@@ -158,7 +267,28 @@ const handleContextmenu = (e: MouseEvent) => {
         key: 'create_ahtml',
         props: {
             onClick: async () => {
-                console.log('root')
+                if (data.value) {
+                    let option = data.value[0]
+                    option.children = option.children || []
+                    let i = 0
+                    for (; i < option.children.length; i++) {
+                        if (option.children[i].type !== 0) {
+                            break
+                        }
+                    }
+                    option.children.splice(i, 0, {
+                        label: '',
+                        name: '',
+                        path: option.path,
+                        key: option.key + '#new',
+                        type: 2,
+                        edit: false,
+                        create: true,
+                        children: [],
+                        parent: option
+                    })
+                    showContextmenu.value = false
+                }
                 showContextmenu.value = false
             }
         }
@@ -167,8 +297,22 @@ const handleContextmenu = (e: MouseEvent) => {
         key: 'create_folder',
         props: {
             onClick: async () => {
-                console.log('root')
-                showContextmenu.value = false
+                if (data.value) {
+                    let option = data.value[0]
+                    option.children = option.children || []
+                    option.children.unshift({
+                        label: '',
+                        name: '',
+                        path: option.path,
+                        key: option.key + '#new',
+                        type: 0,
+                        edit: false,
+                        create: true,
+                        children: [],
+                        parent: option
+                    })
+                    showContextmenu.value = false
+                }
             }
         }
     }]
@@ -192,7 +336,24 @@ const nodeProps = ({ option }: { option: any }): any => {
                         key: 'create_markdown',
                         props: {
                             onClick: async () => {
-                                await create(option.key, 'new.md')
+                                option.children = option.children || []
+                                let i = 0
+                                for (; i < option.children.length; i++) {
+                                    if (option.children[i].type !== 0) {
+                                        break
+                                    }
+                                }
+                                option.children.splice(i, 0, {
+                                    label: '',
+                                    name: '',
+                                    path: option.path,
+                                    key: option.key + '#new',
+                                    type: 1,
+                                    edit: false,
+                                    create: true,
+                                    children: [],
+                                    parent: option
+                                })
                                 showContextmenu.value = false
                             }
                         }
@@ -201,7 +362,24 @@ const nodeProps = ({ option }: { option: any }): any => {
                         key: 'create_ahtml',
                         props: {
                             onClick: async () => {
-                                console.log(option)
+                                option.children = option.children || []
+                                let i = 0
+                                for (; i < option.children.length; i++) {
+                                    if (option.children[i].type !== 0) {
+                                        break
+                                    }
+                                }
+                                option.children.splice(i, 0, {
+                                    label: '',
+                                    name: '',
+                                    path: option.path,
+                                    key: option.key + '#new',
+                                    type: 2,
+                                    edit: false,
+                                    create: true,
+                                    children: [],
+                                    parent: option
+                                })
                                 showContextmenu.value = false
                             }
                         }
@@ -210,7 +388,18 @@ const nodeProps = ({ option }: { option: any }): any => {
                         key: 'create_folder',
                         props: {
                             onClick: async () => {
-                                console.log('root')
+                                option.children = option.children || []
+                                option.children.unshift({
+                                    label: '',
+                                    name: '',
+                                    path: option.path,
+                                    key: option.key + '#new',
+                                    type: 0,
+                                    edit: false,
+                                    create: true,
+                                    children: [],
+                                    parent: option
+                                })
                                 showContextmenu.value = false
                             }
                         }
@@ -219,7 +408,7 @@ const nodeProps = ({ option }: { option: any }): any => {
                         key: 'rename',
                         props: {
                             onClick: async () => {
-                                console.log(option)
+                                option.edit = true
                                 showContextmenu.value = false
                             }
                         }
@@ -228,7 +417,15 @@ const nodeProps = ({ option }: { option: any }): any => {
                         key: 'delete',
                         props: {
                             onClick: async () => {
-                                console.log(option)
+                                dialog.warning({
+                                    title: '删除',
+                                    content: `确定删除 ${option.label} ？`,
+                                    positiveText: '删除',
+                                    negativeText: '取消',
+                                    onPositiveClick: async () => {
+                                        await delete_(option.path, true)
+                                    }
+                                })
                                 showContextmenu.value = false
                             }
                         }
@@ -240,7 +437,7 @@ const nodeProps = ({ option }: { option: any }): any => {
                         key: 'open',
                         props: {
                             onClick: async () => {
-                                console.log(option)
+                                emits("handleOpenFile", option)
                                 showContextmenu.value = false
                             }
                         }
@@ -249,7 +446,7 @@ const nodeProps = ({ option }: { option: any }): any => {
                         key: 'rename',
                         props: {
                             onClick: async () => {
-                                console.log(option)
+                                option.edit = true
                                 showContextmenu.value = false
                             }
                         }
@@ -258,7 +455,15 @@ const nodeProps = ({ option }: { option: any }): any => {
                         key: 'delete',
                         props: {
                             onClick: async () => {
-                                await delete_(option.key)
+                                dialog.warning({
+                                    title: '删除',
+                                    content: `确定删除 ${option.label} ？`,
+                                    positiveText: '删除',
+                                    negativeText: '取消',
+                                    onPositiveClick: async () => {
+                                        await delete_(option.path)
+                                    }
+                                })
                                 showContextmenu.value = false
                             }
                         }
@@ -271,13 +476,14 @@ const nodeProps = ({ option }: { option: any }): any => {
         },
     }
 }
+const d = computed<TreeOption[] | undefined>(() => data.value ? data.value[0].children : undefined)
 </script>
 
 <template>
     <div class="file-tree" :class="props.theme" @contextmenu="handleContextmenu">
         <n-dropdown trigger="manual" size="small" placement="bottom-start" :show="showContextmenu"
             :options="(optionsContextmenu as any)" :x="xPos" :y="yPos" @clickoutside="showContextmenu = false" />
-        <n-tree block-line :data="data" :default-expanded-keys="defaultExpandedKeys" expand-on-click
+        <n-tree block-line :data="d" :default-expanded-keys="defaultExpandedKeys"
             :render-switcher-icon="renderSwitcherIcon" :render-label="renderLabel"
             @update-expanded-keys="handleUpdateExpandedKeys" :node-props="nodeProps" />
     </div>

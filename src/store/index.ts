@@ -4,6 +4,7 @@ import { defineStore } from 'pinia'
 const defaultConfig = (): Config => {
     let config: Config = {
         theme: 'dark',
+        watch: false,
         mdMode: 'wysiwyg',
         mdToolbar: {
             "headings": false,

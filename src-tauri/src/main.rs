@@ -93,6 +93,8 @@ fn read_dir(path: &Path, depth: i32) -> Result<Vec<FileTree>, std::io::Error> {
         Err(e) => return Err(e),
     }
 
+    result.sort_by(|a, b| a.type_.cmp(&b.type_));
+
     Ok(result)
 }
 
@@ -173,6 +175,14 @@ fn delete(path: String, is_dir: bool) -> bool {
     } else {
         std::fs::remove_file(&path).is_ok()
     }
+}
+
+// rename
+#[tauri::command]
+fn rename(path: String, name: String) -> bool {
+    let old_path = Path::new(&path);
+    let new_path = old_path.with_file_name(name);
+    std::fs::rename(&old_path, &new_path).is_ok()
 }
 
 #[tauri::command]
@@ -384,7 +394,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         }
                                     }
                                     Event::Rename(from, to) => {
-                                        if from.is_dir() {
+                                        if to.is_dir() {
                                             txx.send(Box::leak(Box::new(Message {
                                                 type_: 5,
                                                 path: Box::new(from.to_str().unwrap().to_string()),
@@ -440,6 +450,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             open,
             create,
             delete,
+            rename,
             read,
             reads,
             write,

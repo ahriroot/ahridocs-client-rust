@@ -1,5 +1,6 @@
 export interface Config {
     theme: string
+    watch: boolean
     mdMode: "ir" | "sv" | "wysiwyg"
     mdToolbar: { [x: string]: boolean }
     ahtmlToolbar: { [x: string]: boolean }
