@@ -3,7 +3,7 @@ import { ref, onBeforeMount } from "vue"
 import { useIndexStore } from "@/store"
 import { invoke } from "@tauri-apps/api/tauri"
 
-import type { Config } from "@/types"
+import type { Config, Response, ProjectConfig } from "@/types"
 
 const props = defineProps<{ value: undefined; mode: undefined }>()
 const emits = defineEmits<{
@@ -14,7 +14,7 @@ const indexStore = useIndexStore()
 
 const config = ref<Config>({ ...indexStore.config })
 
-const project_config = ref<{ project: string; token: string }>({
+const project_config = ref<ProjectConfig>({
     token: "",
     project: "",
 })
@@ -22,9 +22,14 @@ const project_config = ref<{ project: string; token: string }>({
 onBeforeMount(async () => {
     let folder: string = localStorage.getItem("folder") || ""
     let base = folder
-    project_config.value = await invoke<{ project: string; token: string }>("get_config", {
+    let res = await invoke<Response<ProjectConfig>>("get_config", {
         path: base,
     })
+    if (res.code !== 10000) {
+        alert(res.msg)
+        return
+    }
+    project_config.value = res.data
 })
 
 const handleSetTheme = async (theme: string) => {
@@ -53,13 +58,16 @@ const handleSetMdMode = async (mode: "ir" | "sv" | "wysiwyg") => {
 }
 
 const handlePrjojectChanged = async () => {
-    await invoke("set_config", {
+    let res = await invoke<Response<boolean>>("set_config", {
         path: localStorage.getItem("folder") || "",
         config: {
             project: project_config.value.project,
             token: project_config.value.token,
         },
     })
+    if (res.code !== 10000) {
+        alert(res.msg)
+    }
 }
 </script>
 
@@ -80,83 +88,48 @@ const handlePrjojectChanged = async () => {
         </div>
         <h2>Theme:</h2>
         <div class="config-value">
-            <div
-                class="config-radio"
-                :class="{ active: config.theme === 'dark' }"
-                @click="handleSetTheme('dark')"
-            >
+            <div class="config-radio" :class="{ active: config.theme === 'dark' }" @click="handleSetTheme('dark')">
                 <p>Dark</p>
             </div>
-            <div
-                class="config-radio"
-                :class="{ active: config.theme === 'light' }"
-                @click="handleSetTheme('light')"
-            >
+            <div class="config-radio" :class="{ active: config.theme === 'light' }" @click="handleSetTheme('light')">
                 <p>Light</p>
             </div>
         </div>
         <h2>Watch(relunch):</h2>
         <div class="config-value">
-            <div
-                class="config-radio"
-                :class="{ active: config.watch === true }"
-                @click="handleSetWatch(true)"
-            >
+            <div class="config-radio" :class="{ active: config.watch === true }" @click="handleSetWatch(true)">
                 <p>True</p>
             </div>
-            <div
-                class="config-radio"
-                :class="{ active: config.watch === false }"
-                @click="handleSetWatch(false)"
-            >
+            <div class="config-radio" :class="{ active: config.watch === false }" @click="handleSetWatch(false)">
                 <p>False</p>
             </div>
         </div>
         <h2>Markdown:</h2>
         <div class="config-value">
             <h3>Mode: &nbsp;</h3>
-            <div
-                class="config-radio"
-                :class="{ active: config.mdMode === 'ir' }"
-                @click="handleSetMdMode('ir')"
-            >
+            <div class="config-radio" :class="{ active: config.mdMode === 'ir' }" @click="handleSetMdMode('ir')">
                 <p>ir</p>
             </div>
-            <div
-                class="config-radio"
-                :class="{ active: config.mdMode === 'sv' }"
-                @click="handleSetMdMode('sv')"
-            >
+            <div class="config-radio" :class="{ active: config.mdMode === 'sv' }" @click="handleSetMdMode('sv')">
                 <p>sv</p>
             </div>
-            <div
-                class="config-radio"
-                :class="{ active: config.mdMode === 'wysiwyg' }"
-                @click="handleSetMdMode('wysiwyg')"
-            >
+            <div class="config-radio" :class="{ active: config.mdMode === 'wysiwyg' }"
+                @click="handleSetMdMode('wysiwyg')">
                 <p>wysiwyg</p>
             </div>
         </div>
         <div class="config-value">
             <h3>Toolbar: &nbsp;</h3>
-            <div
-                v-for="(item, key) in config.mdToolbar"
-                class="config-radio"
-                :class="{ active: item }"
-                @click="handleSetMdToolbar(key as string)"
-            >
+            <div v-for="(item, key) in config.mdToolbar" class="config-radio" :class="{ active: item }"
+                @click="handleSetMdToolbar(key as string)">
                 <p>{{ key }}</p>
             </div>
         </div>
         <h2>AHtml:</h2>
         <div class="config-value">
             <h3>Toolbar: &nbsp;</h3>
-            <div
-                v-for="(item, key) in config.ahtmlToolbar"
-                class="config-radio"
-                :class="{ active: item }"
-                @click="handleSetAHtmlToolbar(key as string)"
-            >
+            <div v-for="(item, key) in config.ahtmlToolbar" class="config-radio" :class="{ active: item }"
+                @click="handleSetAHtmlToolbar(key as string)">
                 <p>{{ key }}</p>
             </div>
         </div>
@@ -194,6 +167,7 @@ const handlePrjojectChanged = async () => {
             cursor: pointer;
             transition: all 0.2s ease-in-out;
         }
+
         .config-input {
             input {
                 width: 200px;
@@ -218,6 +192,7 @@ const handlePrjojectChanged = async () => {
                 background-color: #1d2125;
             }
         }
+
         .config-input {
             input {
                 color: #d7d8d9;
@@ -238,6 +213,7 @@ const handlePrjojectChanged = async () => {
                 background-color: #f3f6f8;
             }
         }
+
         .config-input {
             input {
                 color: #000;

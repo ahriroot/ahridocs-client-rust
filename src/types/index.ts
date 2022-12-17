@@ -21,3 +21,14 @@ export interface DocFile {
     content: string
     changed: boolean
 }
+
+export interface Response<T> {
+    code: number
+    msg: string
+    data: T
+}
+
+export interface ProjectConfig {
+    token: string
+    project: string
+}

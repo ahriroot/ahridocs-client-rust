@@ -6,7 +6,7 @@ import { NTree, TreeOption, NIcon, NDropdown, useDialog } from "naive-ui"
 import { ChevronForward } from "@vicons/ionicons5"
 import { invoke } from "@tauri-apps/api/tauri"
 
-import type { FileTree } from "@/types"
+import type { FileTree, Response, ProjectConfig } from "@/types"
 import { TreeRenderProps } from "naive-ui/es/tree/src/interface"
 
 import AInputFocus from './AInputFocus.vue'
@@ -59,9 +59,14 @@ const tree2array = (
 const handleExpand = async () => {
     let folder: string = localStorage.getItem("folder") || ""
     let base = folder
-    const config = await invoke<{ type_: number; path: string }>("get_config", {
+    let result = await invoke<Response<ProjectConfig>>("get_config", {
         path: base
     })
+    if (result.code !== 10000) {
+        alert(result.msg)
+        return
+    }
+    let config = result.data
     console.log(config)
     let res = tree2array(data.value, "/", base)
 
@@ -114,12 +119,22 @@ const renderLabel = ({ option }: TreeRenderProps): VNodeChild => {
                         }
                     }
                     let res = await create(option.path as string, name, option.type === 0)
-                    if (option.type === 1 || option.type === 2) {
-                        emits("handleOpenFile", {
-                            type: option.type,
-                            name: name,
-                            path: res.path,
-                        })
+                    if (res) {
+                        if (option.type === 1 || option.type === 2) {
+                            emits("handleOpenFile", {
+                                type: option.type,
+                                name: name,
+                                path: res.path,
+                            })
+                        }
+                    } else {
+                        const parent: TreeOption = option.parent as TreeOption
+                        if (parent) {
+                            const index = parent.children?.indexOf(option)
+                            if (index !== undefined) {
+                                parent.children?.splice(index, 1)
+                            }
+                        }
                     }
                     option.name = option.label as string
                 }
@@ -197,8 +212,8 @@ onBeforeMount(async () => {
     data.value = dt.map((file) => fileToNode(file, undefined))
 })
 
-const create = async (path: string, name: string, is_dir: boolean = false): Promise<{ content: string; path: string; type_: number; updated: number }> => {
-    const res = await invoke<{ content: string; path: string; type_: number; updated: number }>("create", {
+const create = async (path: string, name: string, is_dir: boolean = false): Promise<{ content: string; path: string; type_: number; updated: number } | null> => {
+    const res = await invoke<Response<{ content: string; path: string; type_: number; updated: number } | null>>("create", {
         path: path,
         name: name,
         isDir: is_dir
@@ -208,20 +223,25 @@ const create = async (path: string, name: string, is_dir: boolean = false): Prom
             type_: is_dir ? 1 : 2,
         })
     }
-    return res
+    if (res.code !== 10000) {
+        alert(res.msg)
+    }
+    return res.data
 }
 
 const delete_ = async (path: string, is_dir: boolean = false) => {
-    const res = await invoke("delete", {
+    const res = await invoke<Response<boolean>>("delete", {
         path: path,
         isDir: is_dir
     })
-    if (res) {
-        emit("file-system-changed", {
-            type_: is_dir ? -1 : -2,
-            path: path
-        })
+    if (res.code !== 10000) {
+        alert(res.msg)
+        return
     }
+    emit("file-system-changed", {
+        type_: is_dir ? -1 : -2,
+        path: path
+    })
 }
 
 const showContextmenu = ref(false)
